@@ -4,6 +4,7 @@ import { configuredTrackers } from "../utils/trackers.js";
 const DEFAULT_MAX_CONNS = 350;
 const DEFAULT_STORE_CACHE_SLOTS = 96;
 const DEFAULT_MAX_WEB_CONNS = 16;
+const DEFAULT_METADATA_TIMEOUT_MS = 60_000;
 
 type DownloadStrategy = "rarest" | "sequential";
 
@@ -51,6 +52,19 @@ export function resolveDownloadTuning(): DownloadTuning {
     ),
     strategy: readStrategy(),
   };
+}
+
+/**
+ * Bound the wait for torrent metadata (magnet → name/size). Dead magnets with
+ * no trackers or peers would otherwise stay in "downloading" forever.
+ */
+export function resolveMetadataTimeout(): number {
+  return readBoundedInteger(
+    "TORRENTX_METADATA_TIMEOUT_MS",
+    DEFAULT_METADATA_TIMEOUT_MS,
+    10_000,
+    600_000,
+  );
 }
 
 /**

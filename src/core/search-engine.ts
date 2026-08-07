@@ -108,7 +108,7 @@ export class SearchEngine {
           intent,
           filters: options,
           limit,
-        }, options.sourceTimeoutMs ?? this.config.sourceTimeoutMs, options.signal).then((run) => {
+        }, options.sourceTimeoutMs, options.signal).then((run) => {
           completedRuns.push(run);
           const partialResults = rankResults(
             applyFilters(dedupeResults(completedRuns.flatMap((item) => item.results)), options),
@@ -227,7 +227,7 @@ export class SearchEngine {
               intent: altIntent,
               filters: options,
               limit,
-            }, options.sourceTimeoutMs ?? this.config.sourceTimeoutMs, signal),
+            }, options.sourceTimeoutMs, signal),
           ),
       );
       allExpanded.push(...runs.flatMap((r) => r.results));
@@ -244,18 +244,17 @@ export class SearchEngine {
   private async runSource(
     source: SourceAdapter,
     request: Omit<SearchRequest, "signal">,
-    fallbackTimeoutMs: number,
+    userTimeoutMs: number | undefined,
     signal?: AbortSignal,
   ): Promise<{ results: SearchResult[]; report: SourceRun }> {
     const startedAt = Date.now();
     const controller = new AbortController();
     let timedOut = false;
 
-    // Use adaptive timeout based on historical performance
-    const timeoutMs = Math.min(
-      this.health.getTimeout(source.id, fallbackTimeoutMs),
-      fallbackTimeoutMs,
-    );
+    // Adaptive timeout: historical performance (3–15s) wins unless the user
+    // explicitly overrode the per-source timeout on this invocation.
+    const timeoutMs =
+      userTimeoutMs ?? this.health.getTimeout(source.id, this.config.sourceTimeoutMs);
 
     const timeout = setTimeout(() => {
       timedOut = true;
@@ -283,8 +282,12 @@ export class SearchEngine {
     } catch (error) {
       const failure = describeSourceFailure(error, timedOut);
 
-      // Record failure for adaptive learning
-      this.health.recordFailure(source.id);
+      // Record failure for adaptive learning — but never when the run was
+      // cancelled (user abort, query change, shutdown): that would mark
+      // healthy sources as unreliable and inflate their timeout stats.
+      if (failure.kind !== "cancelled") {
+        this.health.recordFailure(source.id);
+      }
 
       return {
         results: [],

@@ -8,6 +8,7 @@
   },
   "files": [
     "dist",
+    "scripts",
     "README.md",
     "LICENSE"
   ],
@@ -21,6 +22,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "check": "npm run typecheck && npm test && npm run build",
+    "postinstall": "node scripts/patch-webtorrent.mjs",
     "prepublishOnly": "npm run check"
   },
   "keywords": [

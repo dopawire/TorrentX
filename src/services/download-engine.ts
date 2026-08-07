@@ -3,7 +3,7 @@ import { mkdir } from "node:fs/promises";
 import type WebTorrent from "webtorrent";
 import type { Torrent } from "webtorrent";
 import type { DownloadProgress } from "../types/download.js";
-import { torrentAddOptions, webTorrentClientOptions } from "./download-tuning.js";
+import { resolveMetadataTimeout, torrentAddOptions, webTorrentClientOptions } from "./download-tuning.js";
 
 export interface TorrentHandle {
   infoHash: string;
@@ -65,10 +65,26 @@ export class DownloadEngine extends EventEmitter {
     this.idToTorrent.set(id, torrent);
 
     // Emit metadata once we know the torrent name/size/torrentFile bytes.
+    // Dead magnets never fetch metadata, so bound the wait and surface an
+    // error instead of hanging the download in "downloading" forever.
     if (torrent.ready) {
       this.emit("metadata", id, torrent.name, torrent.length, torrent.torrentFile);
     } else {
+      const timeoutMs = resolveMetadataTimeout();
+      const metadataTimer = setTimeout(() => {
+        if (!torrent.ready && !torrent.destroyed) {
+          this.emit(
+            "error",
+            id,
+            new Error(`Metadata fetch timed out after ${timeoutMs}ms`),
+          );
+          this.clearProgressInterval(id);
+          this.idToTorrent.delete(id);
+          void torrent.destroy();
+        }
+      }, timeoutMs);
       torrent.once("metadata", () => {
+        clearTimeout(metadataTimer);
         this.emit("metadata", id, torrent.name, torrent.length, torrent.torrentFile);
       });
     }

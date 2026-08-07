@@ -239,11 +239,26 @@ export class DownloadManager extends EventEmitter {
     });
 
     this.engine.on("error", (id: string, err: Error) => {
-      void this.store.updateRecord(id, {
-        errorMessage: err.message,
-      });
+      // Client-level errors (tracker announce failures etc.) are not tied to
+      // a single download — surface them without touching any record.
+      if (id === "client") {
+        this.emit("error", err);
+        return;
+      }
+
       const record = this.store.getById(id);
-      if (record) this.emit("error", this.toItem(record));
+      if (!record) return;
+
+      const patch: Partial<DownloadRecord> = { errorMessage: err.message };
+      // A fatal torrent error means the download is dead — stop showing it
+      // as an active download that never finishes.
+      if (record.status === "downloading" || record.status === "queued") {
+        patch.status = "error";
+      }
+      void this.store.updateRecord(id, patch).then(() => {
+        const updated = this.store.getById(id);
+        if (updated) this.emit("error", this.toItem(updated));
+      });
     });
 
     this.engine.on(

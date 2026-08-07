@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { Command } from "commander";
 import { createConfig } from "./core/config.js";
 import { SearchEngine } from "./core/search-engine.js";
@@ -15,7 +16,9 @@ import { warmupDns } from "./services/dns-warmup.js";
 import type { MediaType } from "./types/search.js";
 import { runInteractive } from "./ui/interactive.js";
 
-const VERSION = "0.2.1";
+const VERSION = JSON.parse(
+  readFileSync(new URL("../package.json", import.meta.url), "utf8"),
+).version as string;
 const config = createConfig();
 
 // Initialize adaptive source health tracking (learns from past sessions)

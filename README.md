@@ -44,16 +44,16 @@ Press `w` to toggle the downloads panel:
 
 ### Download speed
 
-TorrentX does not apply a download rate cap. It uses DHT, local peer discovery, peer exchange, tracker discovery, rarest-piece selection, and a 250-peer connection budget to find healthy peers quickly. Actual speed is still limited by the torrent's available seeders, their upload capacity, your router, and your ISP.
+TorrentX does not apply a download rate cap. It uses DHT, local peer discovery, peer exchange, tracker discovery, rarest-piece selection, and a 350-peer connection budget to find healthy peers quickly. Actual speed is still limited by the torrent's available seeders, their upload capacity, your router, and your ISP.
 
 You can tune the connection budget before launch when needed:
 
 ```powershell
-$env:TORRENTX_MAX_CONNS = "400" # 55-800, default 250
+$env:TORRENTX_MAX_CONNS = "400" # 55-1200, default 350
 npx torrentx
 ```
 
-`TORRENTX_MAX_WEB_CONNS` (1-64), `TORRENTX_STORE_CACHE_SLOTS` (8-256), and `TORRENTX_DOWNLOAD_STRATEGY` (`rarest`, the default, or `sequential`) are also supported. Set `TORRENTX_TRACKERS` to a comma- or newline-separated tracker list to replace the built-in list.
+`TORRENTX_MAX_WEB_CONNS` (1-96), `TORRENTX_STORE_CACHE_SLOTS` (8-512), and `TORRENTX_DOWNLOAD_STRATEGY` (`rarest`, the default, or `sequential`) are also supported. Set `TORRENTX_TRACKERS` to a comma- or newline-separated tracker list to replace the built-in list.
 
 ---
 

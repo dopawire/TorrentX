@@ -8,3 +8,9 @@ coverage/
 tmp/
 temp/
 .qoder/
+
+# Local AI/editor settings
+.claude/
+.claude.json
+.opencode/
+.cursor/

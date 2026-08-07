@@ -1,7 +1,7 @@
 import type { SearchRequest, SourceAdapter } from "../types/search.js";
 import type { HttpClient } from "../services/http-client.js";
 import { buildMagnet } from "../utils/magnet.js";
-import { createResult, raceMirrors } from "./source-utils.js";
+import { createResult, raceMirrors, safeIsoDate } from "./source-utils.js";
 
 interface SolidTorrentsResponse {
   success?: boolean;
@@ -52,7 +52,7 @@ export class SolidTorrentsAdapter implements SourceAdapter {
             sizeBytes: item.size || undefined,
             seeders: item.seeders,
             leechers: item.leechers,
-            uploadedAt: item.updatedAt ? new Date(item.updatedAt).toISOString() : undefined,
+            uploadedAt: safeIsoDate(item.updatedAt),
             trusted: item.verified,
           }),
         );

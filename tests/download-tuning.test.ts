@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   resolveDownloadTuning,
+  resolveMetadataTimeout,
   torrentAddOptions,
   webTorrentClientOptions,
 } from "../src/services/download-tuning.js";
@@ -11,6 +12,7 @@ const ENV_KEYS = [
   "TORRENTX_STORE_CACHE_SLOTS",
   "TORRENTX_DOWNLOAD_STRATEGY",
   "TORRENTX_TRACKERS",
+  "TORRENTX_METADATA_TIMEOUT_MS",
 ] as const;
 
 let savedEnvironment: Record<string, string | undefined>;
@@ -69,5 +71,18 @@ describe("download tuning", () => {
     expect(options.maxConns).toBe(350);
     expect(options.downloadLimit).toBeUndefined();
     expect(options.uploadLimit).toBeUndefined();
+  });
+
+  it("bounds the metadata fetch timeout", () => {
+    expect(resolveMetadataTimeout()).toBe(60_000);
+
+    process.env.TORRENTX_METADATA_TIMEOUT_MS = "1";
+    expect(resolveMetadataTimeout()).toBe(10_000);
+
+    process.env.TORRENTX_METADATA_TIMEOUT_MS = "999999999";
+    expect(resolveMetadataTimeout()).toBe(600_000);
+
+    process.env.TORRENTX_METADATA_TIMEOUT_MS = "30000";
+    expect(resolveMetadataTimeout()).toBe(30_000);
   });
 });

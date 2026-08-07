@@ -107,4 +107,70 @@ describe("SearchEngine", () => {
     )).toBe(true);
     expect(snapshots.at(-1)?.titles).toEqual(["slow result", "fast result"]);
   });
+
+  it("does not record a health failure when the search is cancelled by the user", async () => {
+    const flaky: SourceAdapter = {
+      id: "flaky",
+      name: "Flaky",
+      reliability: 0.8,
+      mediaTypes: ["movie"],
+      regions: ["global"],
+      async search(request) {
+        await waitUntilAborted(request.signal ?? new AbortController().signal);
+        return [];
+      },
+    };
+    const directory = await mkdtemp(path.join(os.tmpdir(), "torrentx-abort-test-"));
+    const config = createConfig({ tmdbApiKey: undefined, omdbApiKey: undefined });
+    const engine = new SearchEngine(
+      [flaky],
+      config,
+      new CacheService(config.cacheTtlMs, directory),
+    );
+    const controller = new AbortController();
+
+    const searchPromise = engine.search("example", {
+      enrich: false,
+      cache: false,
+      signal: controller.signal,
+    });
+    controller.abort();
+
+    await expect(searchPromise).rejects.toThrow(/aborted/i);
+    expect(engine.getHealthTracker().getLearnedReliability("flaky")).toBeUndefined();
+  });
+
+  it("still records failures that come from real errors, not aborts", async () => {
+    const broken: SourceAdapter = {
+      id: "still-broken",
+      name: "Still Broken",
+      reliability: 0.5,
+      mediaTypes: ["movie"],
+      regions: ["global"],
+      async search() {
+        throw new Error("offline");
+      },
+    };
+    const directory = await mkdtemp(path.join(os.tmpdir(), "torrentx-failure-test-"));
+    const config = createConfig({ tmdbApiKey: undefined, omdbApiKey: undefined });
+    const engine = new SearchEngine(
+      [broken],
+      config,
+      new CacheService(config.cacheTtlMs, directory),
+    );
+
+    await engine.search("example", { enrich: false, cache: false });
+
+    expect(engine.getHealthTracker().getLearnedReliability("still-broken")).toBeLessThan(0.5);
+  });
 });
+
+function waitUntilAborted(signal: AbortSignal): Promise<never> {
+  return new Promise((_, reject) => {
+    signal.addEventListener(
+      "abort",
+      () => reject(new DOMException("The operation was aborted", "AbortError")),
+      { once: true },
+    );
+  });
+}

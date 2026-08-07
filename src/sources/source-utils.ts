@@ -45,6 +45,17 @@ export function createResult(input: {
   };
 }
 
+/**
+ * Parse an arbitrary date string into an ISO timestamp without throwing.
+ * Source APIs occasionally emit malformed dates; a single bad record must
+ * not kill the entire source run.
+ */
+export function safeIsoDate(value: string | number | undefined): string | undefined {
+  if (value === undefined || value === "") return undefined;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
+}
+
 export interface MirrorRaceOptions {
   staggerMs?: number;
 }

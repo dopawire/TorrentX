@@ -34,7 +34,11 @@ export class SearchEngine {
     health?: SourceHealthTracker,
   ) {
     this.metadata = new MetadataService(config);
-    this.health = health ?? new SourceHealthTracker();
+    this.health =
+      health ??
+      new SourceHealthTracker(undefined, {
+        defaultTimeoutMs: config.sourceTimeoutMs,
+      });
   }
 
   getSources(): readonly SourceAdapter[] {
@@ -79,7 +83,10 @@ export class SearchEngine {
     }
 
     // Priority-based source scheduling: sort by intent relevance + learned reliability
-    const selectedSources = this.sources
+    const pool = options.top
+      ? this.sources.filter((source) => source.supportsTop)
+      : this.sources;
+    const selectedSources = pool
       .filter((source) => !options.source?.length || options.source.includes(source.id))
       .sort(
         (a, b) =>
@@ -101,13 +108,16 @@ export class SearchEngine {
     });
 
     const completedRuns: Array<{ results: SearchResult[]; report: SourceRun }> = [];
-    const runs = await Promise.all(
-      selectedSources.map((source) =>
+    const runs = await this.runWithConcurrency(
+      selectedSources,
+      this.config.maxConcurrency,
+      (source) =>
         this.runSource(source, {
           query: intent.query,
           intent,
           filters: options,
           limit,
+          ...(options.top ? { top: options.top } : {}),
         }, options.sourceTimeoutMs, options.signal).then((run) => {
           completedRuns.push(run);
           const partialResults = rankResults(
@@ -126,26 +136,33 @@ export class SearchEngine {
           });
           return run;
         }),
-      ),
     );
 
     if (options.signal?.aborted) throw new DOMException("Search aborted", "AbortError");
 
     const rawResults = runs.flatMap((run) => run.results);
+    let allResults = rawResults;
     let results = rankResults(applyFilters(dedupeResults(rawResults), options), intent).slice(0, limit);
 
     // Smart query expansion: if results are sparse, retry with simplified queries
-    if (results.length < 3 && options.expandQuery !== false) {
-      const expandedResults = await this.searchWithExpansion(
-        intent, options, limit, options.signal,
+    if (results.length < 3 && options.expandQuery !== false && !options.top) {
+      const expandedRaw = await this.searchWithExpansion(
+        intent, options, limit, selectedSources, options.signal,
       );
-      if (expandedResults.length > results.length) {
-        results = expandedResults;
+      if (expandedRaw.length > 0) {
+        allResults = [...rawResults, ...expandedRaw];
+        const expandedRanked = rankResults(
+          applyFilters(dedupeResults(allResults), options),
+          intent,
+        ).slice(0, limit);
+        if (expandedRanked.length > results.length) {
+          results = expandedRanked;
+        }
       }
     }
 
     // Cross-source consensus boost: torrents found on multiple sources are more likely alive
-    results = this.applyConsensusBoost(results, rawResults);
+    results = this.applyConsensusBoost(results, allResults);
 
     if (options.enrich !== false) {
       results = await this.metadata.enrich(results, intent);
@@ -166,6 +183,9 @@ export class SearchEngine {
       sources,
       durationMs: Date.now() - startedAt,
       cached: false,
+      ...(this.metadata.enrichmentFailures > 0
+        ? { metadataFailures: this.metadata.enrichmentFailures }
+        : {}),
     };
     onProgress?.({
       ...report,
@@ -202,12 +222,14 @@ export class SearchEngine {
 
   /**
    * Smart query expansion: when initial results are sparse, try simplified
-   * versions of the query (strip quality tags, remove year, etc.)
+   * versions of the query (strip quality tags, remove year, etc.). Returns
+   * raw (unranked) results; the caller merges and re-ranks them.
    */
   private async searchWithExpansion(
     intent: SearchIntent,
     options: SearchOptions,
     limit: number,
+    prioritySources: readonly SourceAdapter[],
     signal?: AbortSignal,
   ): Promise<SearchResult[]> {
     const alternatives = expandQuery(intent);
@@ -218,9 +240,7 @@ export class SearchEngine {
       if (signal?.aborted) break;
       const altIntent = { ...intent, query: altQuery };
       const runs = await Promise.all(
-        this.sources
-          .filter((s) => !options.source?.length || options.source.includes(s.id))
-          .slice(0, 6) // Only query top sources for expansion to save time
+        prioritySources.slice(0, 6) // Only query top sources for expansion to save time
           .map((source) =>
             this.runSource(source, {
               query: altQuery,
@@ -235,10 +255,33 @@ export class SearchEngine {
       if (allExpanded.length >= limit) break;
     }
 
-    return rankResults(
-      applyFilters(dedupeResults(allExpanded), options),
-      intent,
-    ).slice(0, limit);
+    return allExpanded;
+  }
+
+  /**
+   * Run `task` over `items` with at most `concurrency` in flight at once,
+   * preserving the input order in the output. Sources are scheduled in
+   * priority order, so the cap favours the highest-priority sources.
+   */
+  private async runWithConcurrency<T, R>(
+    items: readonly T[],
+    concurrency: number,
+    task: (item: T) => Promise<R>,
+  ): Promise<R[]> {
+    const effective = Math.max(1, Math.min(concurrency, items.length || 1));
+    const results = new Array<R>(items.length);
+    let nextIndex = 0;
+
+    const workers = Array.from({ length: effective }, async () => {
+      while (true) {
+        const index = nextIndex++;
+        if (index >= items.length) return;
+        results[index] = await task(items[index]!);
+      }
+    });
+
+    await Promise.all(workers);
+    return results;
   }
 
   private async runSource(
@@ -253,8 +296,9 @@ export class SearchEngine {
 
     // Adaptive timeout: historical performance (3–15s) wins unless the user
     // explicitly overrode the per-source timeout on this invocation.
-    const timeoutMs =
+    const baseTimeoutMs =
       userTimeoutMs ?? this.health.getTimeout(source.id, this.config.sourceTimeoutMs);
+    const timeoutMs = Math.max(baseTimeoutMs, this.config.timeoutFloorMs ?? 0);
 
     const timeout = setTimeout(() => {
       timedOut = true;

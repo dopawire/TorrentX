@@ -9,6 +9,42 @@ import { createResult } from "../src/sources/source-utils.js";
 import type { SourceAdapter } from "../src/types/search.js";
 
 describe("SearchEngine", () => {
+  it("raises per-source timeouts to the configured floor (Tor/proxy latency)", async () => {
+    const hanging: SourceAdapter = {
+      id: "hanging",
+      name: "Hanging",
+      reliability: 0.5,
+      mediaTypes: ["other"],
+      regions: ["global"],
+      async search(request) {
+        return new Promise((_resolve, reject) => {
+          request.signal?.addEventListener("abort", () =>
+            reject(new DOMException("Aborted", "AbortError")),
+          );
+        });
+      },
+    };
+    const directory = await mkdtemp(path.join(os.tmpdir(), "torrentx-test-"));
+    const config = createConfig({
+      tmdbApiKey: undefined,
+      omdbApiKey: undefined,
+      sourceTimeoutMs: 150,
+      timeoutFloorMs: 600,
+    });
+    const engine = new SearchEngine(
+      [hanging],
+      config,
+      new CacheService(config.cacheTtlMs, directory),
+    );
+
+    const startedAt = Date.now();
+    const report = await engine.search("example", { enrich: false, cache: false, expandQuery: false });
+
+    expect(report.sources[0]?.failureKind).toBe("timeout");
+    // The floor (600ms) must win over the smaller base timeout (150ms).
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(500);
+  });
+
   it("isolates failed adapters and filters successful results", async () => {
     const good: SourceAdapter = {
       id: "good",

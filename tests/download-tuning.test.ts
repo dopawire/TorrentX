@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   resolveDownloadTuning,
+  resolveMaxParallelDownloads,
   resolveMetadataTimeout,
+  resolveStallTimeoutMs,
   torrentAddOptions,
   webTorrentClientOptions,
 } from "../src/services/download-tuning.js";
@@ -13,6 +15,8 @@ const ENV_KEYS = [
   "TORRENTX_DOWNLOAD_STRATEGY",
   "TORRENTX_TRACKERS",
   "TORRENTX_METADATA_TIMEOUT_MS",
+  "TORRENTX_MAX_PARALLEL_DOWNLOADS",
+  "TORRENTX_STALL_TIMEOUT_MS",
 ] as const;
 
 let savedEnvironment: Record<string, string | undefined>;
@@ -73,6 +77,10 @@ describe("download tuning", () => {
     expect(options.uploadLimit).toBeUndefined();
   });
 
+  it("disables the uTP transport (native utp-native crash surface)", () => {
+    expect(webTorrentClientOptions().utp).toBe(false);
+  });
+
   it("bounds the metadata fetch timeout", () => {
     expect(resolveMetadataTimeout()).toBe(60_000);
 
@@ -84,5 +92,28 @@ describe("download tuning", () => {
 
     process.env.TORRENTX_METADATA_TIMEOUT_MS = "30000";
     expect(resolveMetadataTimeout()).toBe(30_000);
+  });
+
+  it("bounds the parallel download cap", () => {
+    expect(resolveMaxParallelDownloads()).toBe(3);
+
+    process.env.TORRENTX_MAX_PARALLEL_DOWNLOADS = "0";
+    expect(resolveMaxParallelDownloads()).toBe(1);
+
+    process.env.TORRENTX_MAX_PARALLEL_DOWNLOADS = "500";
+    expect(resolveMaxParallelDownloads()).toBe(16);
+
+    process.env.TORRENTX_MAX_PARALLEL_DOWNLOADS = "5";
+    expect(resolveMaxParallelDownloads()).toBe(5);
+  });
+
+  it("bounds the stall timeout", () => {
+    expect(resolveStallTimeoutMs()).toBe(900_000);
+
+    process.env.TORRENTX_STALL_TIMEOUT_MS = "1";
+    expect(resolveStallTimeoutMs()).toBe(60_000);
+
+    process.env.TORRENTX_STALL_TIMEOUT_MS = "999999999";
+    expect(resolveStallTimeoutMs()).toBe(3_600_000);
   });
 });

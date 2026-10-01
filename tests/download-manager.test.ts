@@ -2,11 +2,52 @@ import { describe, expect, it, beforeEach, afterEach, vi } from "vitest";
 import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { EventEmitter } from "node:events";
 
 // Point the store at a temp directory.
 const TEST_DIR = join(tmpdir(), `torrentx-test-mgr-${Date.now()}`);
 process.env.TORRENTX_STATE_DIR = TEST_DIR;
 process.env.TORRENTX_DOWNLOAD_DIR = join(TEST_DIR, "dl");
+
+// Mock WebTorrent so tests never touch the real DHT/tracker network.
+class MockTorrent extends EventEmitter {
+  infoHash = "deadbeef01234567890deadbeef01234567890ab";
+  name = "Mock Torrent";
+  length = 1000;
+  progress = 0;
+  downloadSpeed = 0;
+  uploadSpeed = 0;
+  uploaded = 0;
+  downloaded = 0;
+  numPeers = 0;
+  ratio = 0;
+  done = false;
+  paused = false;
+  destroyed = false;
+  ready = false;
+  torrentFile = undefined;
+  pause() {
+    this.paused = true;
+  }
+  resume() {
+    this.paused = false;
+  }
+  destroy() {
+    this.destroyed = true;
+    this.emit("close");
+  }
+}
+
+class MockClient extends EventEmitter {
+  destroy(cb?: () => void) {
+    cb?.();
+  }
+  add() {
+    return new MockTorrent();
+  }
+}
+
+vi.mock("webtorrent", () => ({ default: MockClient }));
 
 const { DownloadManager } = await import(
   "../src/services/download-manager.js"
@@ -29,6 +70,21 @@ function fakeResult(overrides: Partial<SearchResult> = {}): SearchResult {
   };
 }
 
+async function waitForStatus(
+  manager: InstanceType<typeof DownloadManager>,
+  id: string,
+  status: string,
+  timeoutMs = 3000,
+): Promise<boolean> {
+  const started = Date.now();
+  while (Date.now() - started < timeoutMs) {
+    const item = manager.getDownload(id);
+    if (item && item.status === status) return true;
+    await new Promise((r) => setTimeout(r, 25));
+  }
+  return false;
+}
+
 describe("DownloadManager", () => {
   let manager: InstanceType<typeof DownloadManager>;
 
@@ -40,7 +96,6 @@ describe("DownloadManager", () => {
 
   afterEach(async () => {
     await manager.destroy().catch(() => undefined);
-    await new Promise((r) => setTimeout(r, 100));
     for (let i = 0; i < 5; i++) {
       try {
         await rm(TEST_DIR, { recursive: true, force: true });
@@ -67,9 +122,7 @@ describe("DownloadManager", () => {
   it("cancelDownload removes from downloads list", async () => {
     const result = fakeResult();
     const item = await manager.startDownload(result);
-
-    // Wait a tick so the engine has time to wire up.
-    await new Promise((r) => setTimeout(r, 200));
+    await waitForStatus(manager, item.id, "downloading");
 
     const removed = await manager.cancelDownload(item.id);
     expect(removed).toBe(true);
@@ -88,5 +141,51 @@ describe("DownloadManager", () => {
 
   it("pauseDownload returns false for unknown id", async () => {
     expect(await manager.pauseDownload("nonexistent")).toBe(false);
+  });
+
+  it("queues downloads beyond the parallel cap and promotes on cancel", async () => {
+    process.env.TORRENTX_MAX_PARALLEL_DOWNLOADS = "1";
+    const capped = new DownloadManager(join(TEST_DIR, "dl"));
+
+    const first = await capped.startDownload(
+      fakeResult({ magnetUri: "magnet:?xt=urn:btih:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" }),
+    );
+    await waitForStatus(capped, first.id, "downloading");
+
+    const second = await capped.startDownload(
+      fakeResult({ magnetUri: "magnet:?xt=urn:btih:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb" }),
+    );
+    expect(second.status).toBe("queued");
+    expect(capped.getDownload(second.id)?.status).toBe("queued");
+
+    await capped.cancelDownload(first.id);
+    expect(
+      await waitForStatus(capped, second.id, "downloading"),
+    ).toBe(true);
+
+    await capped.destroy().catch(() => undefined);
+    delete process.env.TORRENTX_MAX_PARALLEL_DOWNLOADS;
+  });
+
+  it("pause frees a slot for a queued download", async () => {
+    process.env.TORRENTX_MAX_PARALLEL_DOWNLOADS = "1";
+    const capped = new DownloadManager(join(TEST_DIR, "dl"));
+
+    const first = await capped.startDownload(
+      fakeResult({ magnetUri: "magnet:?xt=urn:btih:cccccccccccccccccccccccccccccccccccccccc" }),
+    );
+    await waitForStatus(capped, first.id, "downloading");
+
+    const second = await capped.startDownload(
+      fakeResult({ magnetUri: "magnet:?xt=urn:btih:dddddddddddddddddddddddddddddddddddddddd" }),
+    );
+    expect(second.status).toBe("queued");
+
+    await capped.pauseDownload(first.id);
+    expect(await waitForStatus(capped, second.id, "downloading")).toBe(true);
+    expect(capped.getDownload(first.id)?.status).toBe("paused");
+
+    await capped.destroy().catch(() => undefined);
+    delete process.env.TORRENTX_MAX_PARALLEL_DOWNLOADS;
   });
 });

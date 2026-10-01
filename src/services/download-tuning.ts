@@ -5,6 +5,8 @@ const DEFAULT_MAX_CONNS = 350;
 const DEFAULT_STORE_CACHE_SLOTS = 96;
 const DEFAULT_MAX_WEB_CONNS = 16;
 const DEFAULT_METADATA_TIMEOUT_MS = 60_000;
+const DEFAULT_MAX_PARALLEL_DOWNLOADS = 3;
+const DEFAULT_STALL_TIMEOUT_MS = 15 * 60_000;
 
 type DownloadStrategy = "rarest" | "sequential";
 
@@ -68,6 +70,34 @@ export function resolveMetadataTimeout(): number {
 }
 
 /**
+ * Cap on concurrently active downloads. Downloads beyond the cap stay
+ * "queued" and start automatically as slots free up. Each active torrent
+ * opens up to TORRENTX_MAX_CONNS connections, so this keeps aggregate
+ * connection counts bounded.
+ */
+export function resolveMaxParallelDownloads(): number {
+  return readBoundedInteger(
+    "TORRENTX_MAX_PARALLEL_DOWNLOADS",
+    DEFAULT_MAX_PARALLEL_DOWNLOADS,
+    1,
+    16,
+  );
+}
+
+/**
+ * How long a download may go without any progress before it is considered
+ * stalled and errored out (instead of hanging in "downloading" forever).
+ */
+export function resolveStallTimeoutMs(): number {
+  return readBoundedInteger(
+    "TORRENTX_STALL_TIMEOUT_MS",
+    DEFAULT_STALL_TIMEOUT_MS,
+    60_000,
+    3_600_000,
+  );
+}
+
+/**
  * WebTorrent's defaults already leave transfer rates unlimited. These options
  * increase peer discovery and connection capacity without imposing a rate cap.
  */
@@ -82,7 +112,12 @@ export function webTorrentClientOptions(
     utPex: true,
     natUpnp: true,
     natPmp: true,
-    utp: true,
+    // uTP is deliberately off: it pulls in the native utp-native module (the
+    // only native dependency in the tree, a liability on Termux/ARM) and its
+    // Connection objects can emit unhandled 'error' events before webtorrent
+    // attaches listeners, killing the whole process mid-download. TCP + DHT +
+    // PEX + trackers is the well-tested path.
+    utp: false,
     seedOutgoingConnections: true,
   };
 }

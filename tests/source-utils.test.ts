@@ -27,6 +27,47 @@ describe("raceMirrors", () => {
       raceMirrors(["one"], async () => "unreachable", controller.signal),
     ).rejects.toMatchObject({ name: "AbortError" });
   });
+
+  it("rejects an empty result and keeps racing until a non-empty mirror answers", async () => {
+    const attempts: string[] = [];
+    const result = await raceMirrors(
+      ["blank", "healthy"],
+      async (domain) => {
+        attempts.push(domain);
+        if (domain === "blank") return [] as string[];
+        return ["real", "results"] as string[];
+      },
+      undefined,
+      { staggerMs: 1, isEmpty: (r) => r.length === 0 },
+    );
+
+    expect(result).toEqual(["real", "results"]);
+    expect(attempts).toEqual(["blank", "healthy"]);
+  });
+
+  it("returns the empty result when every mirror parses to nothing", async () => {
+    const result = await raceMirrors(
+      ["a", "b"],
+      async () => [] as number[],
+      undefined,
+      { staggerMs: 1, isEmpty: (r) => r.length === 0 },
+    );
+
+    expect(result).toEqual([]);
+  });
+
+  it("still surfaces real errors when a mirror fails outright", async () => {
+    await expect(
+      raceMirrors(
+        ["broken"],
+        async () => {
+          throw new Error("boom");
+        },
+        undefined,
+        { staggerMs: 1, isEmpty: (r: string[]) => r.length === 0 },
+      ),
+    ).rejects.toThrow("boom");
+  });
 });
 
 function waitUntilAborted(signal: AbortSignal): Promise<never> {

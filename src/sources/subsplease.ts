@@ -1,8 +1,9 @@
 import type { HttpClient } from "../services/http-client.js";
 import type { SearchRequest, SourceAdapter, SearchResult } from "../types/search.js";
+import { SUBSPLEASE_HOST } from "./mirrors.js";
 import { createResult } from "./source-utils.js";
 
-const API = "https://subsplease.org/api/";
+const API = `https://${SUBSPLEASE_HOST}/api/`;
 const RESOLUTION_PREFERENCE = ["1080", "720", "480"];
 
 interface SubsPleaseDownload {
@@ -23,6 +24,7 @@ export class SubsPleaseAdapter implements SourceAdapter {
   readonly reliability = 0.92;
   readonly mediaTypes = ["anime"] as const;
   readonly regions = ["global", "japan"] as const;
+  readonly supportsTop = true;
 
   constructor(private readonly http: HttpClient) {}
 
@@ -31,8 +33,15 @@ export class SubsPleaseAdapter implements SourceAdapter {
 
     const url = new URL(API);
     url.searchParams.set("tz", "UTC");
-    url.searchParams.set("f", "search");
-    url.searchParams.set("s", request.intent.query);
+    if (request.top) {
+      // Top listing: the latest releases of the period (today's / this week's
+      // anime), which is exactly what this feed is built for.
+      url.searchParams.set("f", "latest");
+      url.searchParams.set("h", request.top === "today" ? "24" : "168");
+    } else {
+      url.searchParams.set("f", "search");
+      url.searchParams.set("s", request.intent.query);
+    }
 
     const payload = await this.http.json<Record<string, SubsPleaseEntry> | unknown[]>(
       url.toString(),

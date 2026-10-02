@@ -1,5 +1,7 @@
 import type { SearchRequest, SourceAdapter } from "../types/search.js";
 import type { HttpClient } from "../services/http-client.js";
+import { parseSize } from "../utils/size.js";
+import { LEET1337X_DOMAINS as DOMAINS } from "./mirrors.js";
 import { createResult, raceMirrors } from "./source-utils.js";
 
 /**
@@ -13,8 +15,6 @@ import { createResult, raceMirrors } from "./source-utils.js";
  * This is more expensive but 1337x is the best public tracker for
  * Hindi/Bollywood content with dedicated Indian uploaders.
  */
-
-const DOMAINS = ["1337x.to", "1337x.st", "1337x.gd", "1337x.is"];
 
 interface ParsedRow {
   title: string;
@@ -35,6 +35,7 @@ export class Leet1337xAdapter implements SourceAdapter {
   constructor(private readonly http: HttpClient) {}
 
   async search(request: SearchRequest) {
+    if (request.top) return [];
     return raceMirrors(
       DOMAINS,
       async (domain, signal) => {
@@ -48,6 +49,7 @@ export class Leet1337xAdapter implements SourceAdapter {
         return this.fetchMagnets(domain, top, signal);
       },
       request.signal,
+      { isEmpty: (results) => results.length === 0 },
     );
   }
 
@@ -55,7 +57,7 @@ export class Leet1337xAdapter implements SourceAdapter {
    * Parse the search results table from 1337x HTML.
    * Each result row is a <tr> inside <tbody> of the results table.
    */
-  private parseSearchPage(html: string): ParsedRow[] {
+  parseSearchPage(html: string): ParsedRow[] {
     const rows: ParsedRow[] = [];
 
     // Match rows inside <tbody>...</tbody>
@@ -138,7 +140,7 @@ export class Leet1337xAdapter implements SourceAdapter {
             sourceReliability: this.reliability,
             detailsUrl: detailUrl,
             magnetUri,
-            sizeBytes: parseSizeString(row.sizeStr),
+            sizeBytes: parseSize(row.sizeStr),
             seeders: row.seeders,
             leechers: row.leechers,
             uploadedAt: parseFuzzyDate(row.uploadedAt),
@@ -162,7 +164,7 @@ export class Leet1337xAdapter implements SourceAdapter {
 /**
  * Detect Indian languages from torrent title.
  */
-function detectLanguageFromTitle(title: string): string | undefined {
+export function detectLanguageFromTitle(title: string): string | undefined {
   const lower = title.toLowerCase();
   if (/\bhindi\b/.test(lower)) return "hindi";
   if (/\btamil\b/.test(lower)) return "tamil";
@@ -178,27 +180,10 @@ function detectLanguageFromTitle(title: string): string | undefined {
 }
 
 /**
- * Parse size strings like "1.4 GB", "850 MB", "4.2 GB" into bytes.
- */
-function parseSizeString(str: string): number | undefined {
-  const match = str.match(/([\d.]+)\s*(GB|MB|KB|TB)/i);
-  if (!match) return undefined;
-  const value = parseFloat(match[1]!);
-  const unit = match[2]!.toUpperCase();
-  const multipliers: Record<string, number> = {
-    KB: 1024,
-    MB: 1024 * 1024,
-    GB: 1024 * 1024 * 1024,
-    TB: 1024 * 1024 * 1024 * 1024,
-  };
-  return Math.round(value * (multipliers[unit] ?? 1));
-}
-
-/**
  * Parse fuzzy date strings from 1337x like "Jan. 15th '24" or "2h ago"
  * into ISO strings. Returns undefined for unparseable dates.
  */
-function parseFuzzyDate(str: string): string | undefined {
+export function parseFuzzyDate(str: string): string | undefined {
   if (!str) return undefined;
 
   // Try parsing "Oct. 5th '23" or "Jan. 15 '24" style dates

@@ -1,6 +1,7 @@
 import type { SearchRequest, SourceAdapter } from "../types/search.js";
 import type { HttpClient } from "../services/http-client.js";
-import { createResult } from "./source-utils.js";
+import { FITGIRL_HOST } from "./mirrors.js";
+import { createResult, safeIsoDate, topSlice } from "./source-utils.js";
 
 /**
  * FitGirl Repacks Adapter.
@@ -9,66 +10,81 @@ import { createResult } from "./source-utils.js";
  * Extracts game title, details link, pubDate, and the direct magnet URI from
  * the post content inside each <item> block.
  */
+const FITGIRL_ID = "fitgirl";
+const FITGIRL_RELIABILITY = 0.88;
+
 export class FitGirlAdapter implements SourceAdapter {
-  readonly id = "fitgirl";
+  readonly id = FITGIRL_ID;
   readonly name = "FitGirl Repacks";
-  readonly reliability = 0.88;
+  readonly reliability = FITGIRL_RELIABILITY;
   readonly mediaTypes = ["game"] as const;
   readonly regions = ["global", "usa", "europe"] as const;
+  readonly supportsTop = true;
 
   constructor(private readonly http: HttpClient) {}
 
   async search(request: SearchRequest) {
     if (request.intent.mediaType && request.intent.mediaType !== "game") return [];
 
-    const url = `https://fitgirl-repacks.site/?s=${encodeURIComponent(
-      request.intent.query,
-    )}&feed=rss2`;
+    const url = request.top
+      ? `https://${FITGIRL_HOST}/feed/`
+      : `https://${FITGIRL_HOST}/?s=${encodeURIComponent(
+          request.intent.query,
+        )}&feed=rss2`;
     const xml = await this.http.text(url, request.signal);
 
-    const items = xml.split("<item>").slice(1);
-    const results = [];
+    const mapped = parseFitgirlResults(xml, request.top ? 100 : request.limit);
+    return request.top ? topSlice(mapped, request.top, request.limit) : mapped;
+  }
+}
 
-    for (const item of items) {
-      const titleMatch = item.match(/<title>([^<]+)<\/title>/);
-      const linkMatch = item.match(/<link>([^<]+)<\/link>/);
-      const pubDateMatch = item.match(/<pubDate>([^<]+)<\/pubDate>/);
+/**
+ * Pure mapper: parse a FitGirl WordPress RSS feed into search results.
+ * Exported for parser tests.
+ */
+export function parseFitgirlResults(xml: string, limit: number): ReturnType<typeof createResult>[] {
+  const items = xml.split("<item>").slice(1);
+  const results: ReturnType<typeof createResult>[] = [];
 
-      if (!titleMatch || !linkMatch) continue;
+  for (const item of items) {
+    const titleMatch = item.match(/<title>([^<]+)<\/title>/);
+    const linkMatch = item.match(/<link>([^<]+)<\/link>/);
+    const pubDateMatch = item.match(/<pubDate>([^<]+)<\/pubDate>/);
 
-      const title = decodeHtml(titleMatch[1]!);
-      const detailsUrl = linkMatch[1]!.trim();
-      const pubDate = pubDateMatch?.[1];
+    if (!titleMatch || !linkMatch) continue;
 
-      // Match magnet link in the item body (could be inside href="..." or plain text)
-      // Matches both double-quoted href="magnet:..." and unquoted magnet:...
-      const magnetMatch =
-        item.match(/href="([^"]*magnet:\?xt=urn:btih:[^"]*)"/i) ||
-        item.match(/(magnet:\?xt=urn:btih:[^\s<>"]+)/i);
+    const title = decodeHtml(titleMatch[1]!);
+    const detailsUrl = linkMatch[1]!.trim();
+    const pubDate = pubDateMatch?.[1];
 
-      let magnetUri = magnetMatch ? decodeHtml(magnetMatch[1]!) : undefined;
+    // Match magnet link in the item body (could be inside href="..." or plain text)
+    // Matches both double-quoted href="magnet:..." and unquoted magnet:...
+    const magnetMatch =
+      item.match(/href="([^"]*magnet:\?xt=urn:btih:[^"]*)"/i) ||
+      item.match(/(magnet:\?xt=urn:btih:[^\s<>"]+)/i);
 
-      // Filter out digest updates which do not contain game magnet links
-      if (title.toLowerCase().includes("updates digest") && !magnetUri) {
-        continue;
-      }
+    const magnetUri = magnetMatch ? decodeHtml(magnetMatch[1]!) : undefined;
 
-      results.push(
-        createResult({
-          title,
-          source: this.id,
-          sourceReliability: this.reliability,
-          detailsUrl,
-          magnetUri,
-          uploadedAt: pubDate ? new Date(pubDate).toISOString() : undefined,
-          mediaType: "game",
-          trusted: true,
-        }),
-      );
+    // Filter out digest updates which do not contain game magnet links
+    if (title.toLowerCase().includes("updates digest") && !magnetUri) {
+      continue;
     }
 
-    return results.slice(0, request.limit);
+    results.push(
+      createResult({
+        title,
+        source: FITGIRL_ID,
+        sourceReliability: FITGIRL_RELIABILITY,
+        detailsUrl,
+        magnetUri,
+        uploadedAt: safeIsoDate(pubDate),
+        mediaType: "game",
+        trusted: true,
+      }),
+    );
   }
+
+  return results.slice(0, limit);
 }
 
 function decodeHtml(html: string): string {

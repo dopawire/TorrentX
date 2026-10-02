@@ -8,7 +8,6 @@ const QUALITY_PATTERNS = [
   "720p",
   "480p",
   "uhd",
-  "hdr",
 ] as const;
 
 const CODEC_PATTERNS = ["av1", "x265", "h265", "hevc", "x264", "h264"] as const;
@@ -17,6 +16,8 @@ export function detectQuality(title: string): string | undefined {
   const lower = title.toLowerCase();
   const quality = QUALITY_PATTERNS.find((candidate) => lower.includes(candidate));
   if (quality === "4k" || quality === "uhd") return "2160p";
+  // "1080i" must stay lowercase to match the canonical quality keys.
+  if (quality === "1080i") return "1080i";
   return quality?.toUpperCase().replace("P", "p");
 }
 

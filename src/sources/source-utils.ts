@@ -1,6 +1,39 @@
-import type { MediaType, Region, SearchResult } from "../types/search.js";
+import type { MediaType, Region, SearchResult, TopPeriod } from "../types/search.js";
 import { stableHash } from "../utils/hash.js";
 import { detectCodec, detectMediaType, detectQuality } from "../utils/text.js";
+
+/** Length of a top-listing period: "today" = last 24h, "week" = last 7 days. */
+export function periodMs(period: TopPeriod): number {
+  return period === "today" ? 24 * 60 * 60_000 : 7 * 24 * 60 * 60_000;
+}
+
+/**
+ * Whether an ISO timestamp falls inside the top-listing period. Items with
+ * no parseable date are kept (sites without date metadata still contribute
+ * their most-seeded entries).
+ */
+export function withinPeriod(
+  iso: string | undefined,
+  period: TopPeriod,
+  now = Date.now(),
+): boolean {
+  if (!iso) return true;
+  const time = Date.parse(iso);
+  if (Number.isNaN(time)) return true;
+  return now - time <= periodMs(period);
+}
+
+/** Keep the most-seeded results inside the period (shared top-listing trim). */
+export function topSlice<T extends { seeders: number; uploadedAt?: string }>(
+  results: T[],
+  top: TopPeriod,
+  limit: number,
+): T[] {
+  return results
+    .filter((result) => withinPeriod(result.uploadedAt, top))
+    .sort((a, b) => b.seeders - a.seeders)
+    .slice(0, limit);
+}
 
 export function createResult(input: {
   title: string;
@@ -45,8 +78,34 @@ export function createResult(input: {
   };
 }
 
-export interface MirrorRaceOptions {
+/**
+ * Parse an arbitrary date string into an ISO timestamp without throwing.
+ * Source APIs occasionally emit malformed dates; a single bad record must
+ * not kill the entire source run.
+ */
+export function safeIsoDate(value: string | number | undefined): string | undefined {
+  if (value === undefined || value === "") return undefined;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
+}
+
+export interface MirrorRaceOptions<T = unknown> {
   staggerMs?: number;
+  /**
+   * Treat a settled result as a mirror failure so the race continues to the
+   * next mirror. This prevents a mirror serving a blocked/blank page (which
+   * parses to zero rows) from winning the race and hiding healthy mirrors.
+   * If every mirror produces an empty result, the first one is returned
+   * (empty results are not an error — they mean "no matches").
+   */
+  isEmpty?: (result: T) => boolean;
+}
+
+class EmptyMirrorError<T> extends Error {
+  constructor(readonly value: T) {
+    super("Mirror returned an empty result");
+    this.name = "EmptyMirrorError";
+  }
 }
 
 /**
@@ -58,7 +117,7 @@ export async function raceMirrors<T>(
   domains: readonly string[],
   request: (domain: string, signal: AbortSignal) => Promise<T>,
   signal?: AbortSignal,
-  options: MirrorRaceOptions = {},
+  options: MirrorRaceOptions<T> = {},
 ): Promise<T> {
   if (domains.length === 0) {
     throw new Error("At least one source mirror is required");
@@ -70,20 +129,33 @@ export async function raceMirrors<T>(
   else signal?.addEventListener("abort", relayAbort, { once: true });
 
   const staggerMs = options.staggerMs ?? 250;
+  const isEmpty = options.isEmpty;
   try {
     return await Promise.any(
       domains.map((domain, index) =>
-        waitFor(index * staggerMs, controller.signal).then(() =>
-          request(domain, controller.signal),
-        ),
+        waitFor(index * staggerMs, controller.signal).then(async () => {
+          const result = await request(domain, controller.signal);
+          if (isEmpty?.(result)) throw new EmptyMirrorError(result);
+          return result;
+        }),
       ),
     );
   } catch (error) {
     if (signal?.aborted) throw createAbortError();
 
     const errors = error instanceof AggregateError ? error.errors : [error];
+
+    // All mirrors either failed or returned empty results: prefer the empty
+    // result over an error — "no matches found" is not a source failure.
+    const empty = errors.find((candidate) => candidate instanceof EmptyMirrorError);
+    if (empty && errors.every((candidate) => isAbortError(candidate) || candidate instanceof EmptyMirrorError)) {
+      return (empty as EmptyMirrorError<T>).value;
+    }
+
     throw (
-      errors.find((candidate) => !isAbortError(candidate)) ??
+      errors.find(
+        (candidate) => !isAbortError(candidate) && !(candidate instanceof EmptyMirrorError),
+      ) ??
       errors.at(-1) ??
       new Error("No source mirror responded")
     );

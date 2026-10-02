@@ -2,9 +2,8 @@ import type { SearchRequest, SourceAdapter } from "../types/search.js";
 import type { HttpClient } from "../services/http-client.js";
 import { buildMagnet } from "../utils/magnet.js";
 import { parseSize } from "../utils/size.js";
+import { LIMETORRENTS_DOMAINS as DOMAINS } from "./mirrors.js";
 import { createResult, raceMirrors } from "./source-utils.js";
-
-const DOMAINS = ["www.limetorrents.lol", "www.limetorrents.pro", "limetorrents.cc"];
 
 /**
  * LimeTorrents adapter.
@@ -28,6 +27,7 @@ export class LimeTorrentsAdapter implements SourceAdapter {
   constructor(private readonly http: HttpClient) {}
 
   async search(request: SearchRequest) {
+    if (request.top) return [];
     return raceMirrors(
       DOMAINS,
       async (domain, signal) => {
@@ -36,10 +36,11 @@ export class LimeTorrentsAdapter implements SourceAdapter {
         return this.parseResults(html, domain, request.limit);
       },
       request.signal,
+      { isEmpty: (results) => results.length === 0 },
     );
   }
 
-  private parseResults(html: string, domain: string, limit: number) {
+  parseResults(html: string, domain: string, limit: number) {
     const results = [];
 
     // Match each <tr bgcolor=...>...</tr> block
@@ -72,9 +73,11 @@ export class LimeTorrentsAdapter implements SourceAdapter {
 
       const detailsUrl = `https://${domain}${detailsPath}`;
 
-      // Extract size from td cells — find all <td> content
+      // Extract size from td cells — find all <td> content.
+      // The content pattern must not swallow the closing </td> tag, or a row
+      // with nested markup collapses into a single fake cell.
       const tdValues: string[] = [];
-      const tdRegex = /<td[^>]*>([^<]*(?:<[^>]*>[^<]*)*)<\/td>/gi;
+      const tdRegex = /<td[^>]*>([^<]*(?:<(?!\/td>)[^>]*>[^<]*)*)<\/td>/gi;
       let tdMatch;
       while ((tdMatch = tdRegex.exec(rowHtml)) !== null) {
         tdValues.push(tdMatch[1]!.replace(/<[^>]*>/g, "").trim());

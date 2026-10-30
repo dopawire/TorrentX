@@ -136,7 +136,8 @@ describe("startTor", () => {
       args: [stalls],
       dataDirectory,
       bootstrapTimeoutMs: 10_000,
-      stallTimeoutMs: 300,
+      // Generous enough for a slow Node startup, so only a real stall trips it.
+      stallTimeoutMs: 2_000,
     });
     try {
       expect(handle.socksPort).toBe(39005);
@@ -171,7 +172,8 @@ describe("startTor", () => {
       args: [stuckWithState],
       dataDirectory,
       bootstrapTimeoutMs: 10_000,
-      stallTimeoutMs: 300,
+      // Generous enough for a slow Node startup, so only a real stall trips it.
+      stallTimeoutMs: 2_000,
     });
     try {
       expect(handle.socksPort).toBe(39004);

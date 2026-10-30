@@ -1,7 +1,6 @@
 import type { TorrentXConfig } from "../types/config.js";
 import type { SourceAdapter } from "../types/search.js";
 import { HttpClient } from "../services/http-client.js";
-import { Leet1337xAdapter } from "./1337x.js";
 import { BitsearchAdapter } from "./bitsearch.js";
 import { EztvAdapter } from "./eztv.js";
 import { FitGirlAdapter } from "./fitgirl.js";
@@ -22,7 +21,6 @@ export function createDefaultSources(config: TorrentXConfig): SourceAdapter[] {
     new EztvAdapter(http),
     new FitGirlAdapter(http),
     new PirateBayAdapter(http),
-    new Leet1337xAdapter(http),
     new TorrentGalaxyAdapter(http),
     new BitsearchAdapter(http),
     new LimeTorrentsAdapter(http),
@@ -35,7 +33,6 @@ export {
   EztvAdapter,
   FitGirlAdapter,
   FmhyAdapter,
-  Leet1337xAdapter,
   LimeTorrentsAdapter,
   NyaaAdapter,
   PirateBayAdapter,

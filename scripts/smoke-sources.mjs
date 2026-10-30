@@ -35,7 +35,6 @@ const PROBE_QUERIES = {
   eztv: "1080p",
   fitgirl: "skyrim",
   piratebay: "ubuntu",
-  "1337x": "ubuntu",
   torrentgalaxy: "ubuntu",
   bitsearch: "ubuntu",
   limetorrents: "ubuntu",

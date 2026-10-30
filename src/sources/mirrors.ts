@@ -12,10 +12,6 @@
 // (yts.lt and yts.am only redirect to yts.gg; yts.mx and yts.do are dead.)
 export const YTS_DOMAINS = ["movies-api.accel.li", "yts.gg"];
 
-// 1337x.gd no longer resolves; 1337x.is is a parked domain whose ad page
-// parsed as an empty result and masked the real mirrors' status.
-export const LEET1337X_DOMAINS = ["1337x.to", "1337x.st"];
-
 export const EZTV_DOMAINS = [
   "eztvx.to",
   "eztv.re",
@@ -65,7 +61,6 @@ export const ALL_SOURCE_HOSTS: string[] = [
   FITGIRL_HOST,
   FMHY_API_HOST,
   // HTML scraping mirrors
-  ...LEET1337X_DOMAINS,
   ...EZTV_DOMAINS.slice(2),
   ...TORRENTGALAXY_DOMAINS,
   ...LIMETORRENTS_DOMAINS,

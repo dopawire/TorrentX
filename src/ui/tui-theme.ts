@@ -31,7 +31,6 @@ const SOURCE_COLORS: Record<string, string> = {
   bitsearch: "#c792ea",
   limetorrents: "#c3e88d",
   subsplease: TUI_COLOR.accent,
-  "1337x": "#ff6b6b",
   torrentgalaxy: "#4ecdc4",
 };
 
@@ -49,7 +48,6 @@ export function sourceTag(source: string): string {
     bitsearch: "BIT",
     limetorrents: "LIME",
     subsplease: "SP",
-    "1337x": "1337",
     torrentgalaxy: "TGX",
   };
   return tags[source.toLowerCase()] ?? source.slice(0, 6).toUpperCase();

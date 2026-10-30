@@ -107,7 +107,7 @@ A short, hand-picked list of indices:
 *   **Games:** Sourced from **FitGirl Repacks**, with a long, trusted track record for executable content.
 *   **Anime:** Sourced from **Nyaa** and **SubsPlease**.
 *   **Movies and TV:** Sourced from **YTS** (movies) and **EZTV** (TV).
-*   **General:** **The Pirate Bay**, **1337x**, **TorrentGalaxy**, **LimeTorrents**, and **Bitsearch** (which now also serves the former SolidTorrents index).
+*   **General:** **The Pirate Bay**, **TorrentGalaxy**, **LimeTorrents**, and **Bitsearch** (which now also serves the former SolidTorrents index).
 *   **Fallback Pages:** Sourced from **FreeMediaHeckYeah (FMHY)** to get working streaming or DDL links when torrents are dead.
 
 Run `torrentx sources` for the exact list.
@@ -160,7 +160,7 @@ In many regions, ISPs block torrent search sites at the network level. TorrentX 
 
 #### DNS hijacking (most common) — enable DNS-over-HTTPS
 
-Some ISPs poison DNS answers so that blocked domains all resolve to one sinkhole address. A quick tell: `nslookup 1337x.to` returns the same odd IP as other blocked sites. TorrentX can resolve domains over HTTPS instead, which the ISP cannot tamper with:
+Some ISPs poison DNS answers so that blocked domains all resolve to one sinkhole address. A quick tell: `nslookup thepiratebay.org` returns the same odd IP as other blocked sites. TorrentX can resolve domains over HTTPS instead, which the ISP cannot tamper with:
 
 ```bash
 # Linux / macOS

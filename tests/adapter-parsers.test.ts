@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { Leet1337xAdapter, parseFuzzyDate } from "../src/sources/1337x.js";
 import { mapBitsearchResults } from "../src/sources/bitsearch.js";
 import { mapEztvResults } from "../src/sources/eztv.js";
 import { parseFitgirlResults } from "../src/sources/fitgirl.js";
@@ -16,52 +15,6 @@ import { mapYtsResults } from "../src/sources/yts.js";
 import type { HttpClient } from "../src/services/http-client.js";
 
 const fakeHttp = {} as HttpClient;
-
-describe("1337x parser", () => {
-  const HTML = `<html><body>
-    <table><tbody>
-      <tr>
-        <td class="coll-1"><a href="/sub/1/movies/"><i class="icon"></i></a> <a href="/torrent/12345/some-movie/">Some Movie 2024</a></td>
-        <td class="coll-2">1,234</td>
-        <td class="coll-3">56</td>
-        <td class="coll-4">1.4 GB</td>
-        <td class="coll-date">Jan. 15th '24</td>
-      </tr>
-      <tr>
-        <td class="coll-1"><a href="/sub/2/tv/"><i class="icon"></i></a> <a href="/torrent/67890/other-show/">Other Show S01</a></td>
-        <td class="coll-2">10</td>
-        <td class="coll-3">2</td>
-        <td class="coll-4">700 MB</td>
-        <td class="coll-date">Mar. 3rd '23</td>
-      </tr>
-    </tbody></table>
-  </body></html>`;
-
-  it("extracts rows from the results table", () => {
-    const rows = new Leet1337xAdapter(fakeHttp).parseSearchPage(HTML);
-    expect(rows).toHaveLength(2);
-    expect(rows[0]).toMatchObject({
-      title: "Some Movie 2024",
-      detailPath: "/torrent/12345/some-movie/",
-      seeders: 1234,
-      leechers: 56,
-    });
-    expect(rows[1]?.seeders).toBe(10);
-  });
-
-  it("returns nothing for a page with no result rows (e.g. a block page)", () => {
-    const rows = new Leet1337xAdapter(fakeHttp).parseSearchPage(
-      "<html><body>Checking your browser</body></html>",
-    );
-    expect(rows).toEqual([]);
-  });
-
-  it("parses fuzzy dates", () => {
-    expect(parseFuzzyDate("Jan. 15th '24")).toBe(new Date(2024, 0, 15).toISOString());
-    expect(parseFuzzyDate("garbage")).toBeUndefined();
-    expect(parseFuzzyDate("")).toBeUndefined();
-  });
-});
 
 describe("torrentgalaxy legacy parser", () => {
   const HTML = `<html><body>

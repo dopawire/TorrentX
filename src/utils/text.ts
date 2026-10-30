@@ -28,11 +28,17 @@ export function detectCodec(title: string): string | undefined {
 
 export function detectMediaType(title: string): MediaType | undefined {
   const lower = title.toLowerCase();
+  // Adult first: a mis-tag here would leak it into every other category.
+  if (/\b(xxx|porn|onlyfans|fansly|brazzers|bangbros|realitykings|naughtyamerica)\b/.test(lower)) {
+    return "adult";
+  }
   if (/\bs\d{1,2}e\d{1,3}\b|\bseason\s+\d+\b/.test(lower)) return "tv";
   if (/\banime\b|\bsubsplease\b|\bdual audio\b/.test(lower)) return "anime";
   if (/\brepack\b|\bfitgirl\b|\bgame\b/.test(lower)) return "game";
   if (/\bsoftware\b|\bmacos\b|\bwindows\b|\blinux\b/.test(lower)) return "software";
   if (/\bdocumentary\b|\bdocu\b/.test(lower)) return "documentary";
+  if (/\b(flac|mp3|discography|320\s?kbps|24bit|lossless)\b/.test(lower)) return "music";
+  if (/\b(epub|mobi|azw3|audiobook|ebook|cbz|cbr)\b/.test(lower)) return "book";
   return undefined;
 }
 

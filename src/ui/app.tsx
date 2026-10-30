@@ -44,8 +44,11 @@ const CATEGORIES: readonly Category[] = [
   { label: "TV", mediaType: "tv" },
   { label: "Anime", mediaType: "anime" },
   { label: "Games", mediaType: "game" },
+  { label: "Music", mediaType: "music" },
   { label: "Software", mediaType: "software" },
+  { label: "Books", mediaType: "book" },
   { label: "Docs", mediaType: "documentary" },
+  { label: "Adult", mediaType: "adult" },
 ];
 
 type Screen = "splash" | "results" | "detail" | "downloads";

@@ -14,6 +14,11 @@ const MEDIA_ALIASES: Record<string, MediaType> = {
   games: "game",
   software: "software",
   documentary: "documentary",
+  music: "music",
+  ebook: "book",
+  ebooks: "book",
+  xxx: "adult",
+  porn: "adult",
 };
 
 const REGION_ALIASES: Record<string, Region> = {
@@ -87,6 +92,10 @@ export function inferSearchIntent(
   if (mediaType === "movie") preferredSources.push("yts");
   if (mediaType === "tv") preferredSources.push("eztv");
   if (mediaType === "game") preferredSources.push("fitgirl");
+  if (mediaType === "adult" || mediaType === "music" || mediaType === "book") {
+    // The indexes with real per-torrent categories for these.
+    preferredSources.push("piratebay", "torrentgalaxy", "bitsearch");
+  }
   if (region === "india") preferredSources.push("torrentgalaxy", "piratebay", "bitsearch");
 
   return {

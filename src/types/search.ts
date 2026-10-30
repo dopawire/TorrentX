@@ -5,6 +5,9 @@ export type MediaType =
   | "game"
   | "software"
   | "documentary"
+  | "music"
+  | "book"
+  | "adult"
   | "other";
 
 export type Region =

@@ -24,6 +24,7 @@ That is the only thing you'll type. TorrentX opens straight to a search bar: typ
 ## Finding something
 
 Type what you're looking for and press Enter. Results stream in concurrently from all trusted sources, tagged with size, quality, and seeders so you can see what will download fast:
+*   **Categories:** All, Movies, TV, Anime, Games, Music, Software, Books (e-books and audiobooks), Docs and Adult. **All** searches everything; picking a category asks only the sources that carry it and uses each site's own category labels, so the Adult tab only shows adult content and adult content stays out of the other tabs.
 *   **Top 100 built in:** TorrentX opens on the current category's Top 100 of the week. Press `t` to switch to the last 24 hours, or Enter on an empty search bar to browse the top again — per category, no typing needed.
 *   **Smart Intent:** Searching `anime`, `kdrama`, or language names automatically adjusts source priority and filters.
 *   **Mobile Mode:** Automatically detects Termux and narrow screens, shifting to a compact two-line layout.
@@ -124,6 +125,9 @@ You can also run direct searches or manage downloads directly from the command l
 # Non-interactive search
 torrentx search "ubuntu"
 torrentx movie "dune" --quality 1080p --min-seeds 50
+torrentx music "pink floyd"
+torrentx books "dune"
+torrentx adult "<query>"
 
 # Browse the top 100 without searching (today = last 24h, week = last 7 days)
 torrentx top

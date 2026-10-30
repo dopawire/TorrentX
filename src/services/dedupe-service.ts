@@ -31,5 +31,11 @@ export function dedupeResults(results: SearchResult[]): SearchResult[] {
     }
   }
 
-  return [...bestByMagnet.values(), ...bestByFingerprint.values()];
+  // Result ids are UI keys; two different listings must never share one.
+  const seenIds = new Set<string>();
+  return [...bestByMagnet.values(), ...bestByFingerprint.values()].filter((result) => {
+    if (seenIds.has(result.id)) return false;
+    seenIds.add(result.id);
+    return true;
+  });
 }

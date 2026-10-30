@@ -89,6 +89,10 @@ export class SearchEngine {
       : this.sources;
     const selectedSources = pool
       .filter((source) => !options.source?.length || options.source.includes(source.id))
+      // A category search only goes to sources that carry that category:
+      // otherwise e.g. an Adult search would fill up with whatever an
+      // anime-only index returns for the same words.
+      .filter((source) => !intent.mediaType || source.mediaTypes.includes(intent.mediaType))
       .sort(
         (a, b) =>
           Number(intent.preferredSources.includes(b.id)) -

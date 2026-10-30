@@ -15,7 +15,9 @@ export class FmhyAdapter implements SourceAdapter {
   readonly id = "fmhy";
   readonly name = "FreeMediaHeckYeah";
   readonly reliability = 1.0;
-  readonly mediaTypes = ["movie", "tv", "anime", "game", "software", "documentary", "other"] as const;
+  readonly mediaTypes = [
+    "movie", "tv", "anime", "game", "software", "documentary", "music", "book", "other",
+  ] as const;
   readonly regions = ["global"] as const;
 
   private readonly cache: CacheService;
@@ -68,7 +70,16 @@ export class FmhyAdapter implements SourceAdapter {
     // Sort by relevance score descending
     matches.sort((a, b) => b.score - a.score);
 
-    return matches.slice(0, request.limit).map(({ entry }) => {
+    // The wiki lists many sites under several headings; result ids derive
+    // from the URL, so keep only the best-scoring entry per link.
+    const seenUrls = new Set<string>();
+    const unique = matches.filter(({ entry }) => {
+      if (seenUrls.has(entry.url)) return false;
+      seenUrls.add(entry.url);
+      return true;
+    });
+
+    return unique.slice(0, request.limit).map(({ entry }) => {
       // Build a neat title: "[FMHY] [Category] Title - Description"
       const prefix = `[FMHY] [${entry.category}]`;
       const suffix = entry.description ? ` - ${entry.description}` : "";
@@ -154,6 +165,8 @@ export class FmhyAdapter implements SourceAdapter {
             .replace(/^\*\s*(?:↪️|⭐|🌐|↪|💎|🔥|⚡)?\s*/, "")
             .replace(/(?:\*\*)?\[[^\]]+\]\([^)]+\)(?:\*\*)?/, "")
             .replace(/^\s*[-/|,;:]\s*/, "")
+            // Inline markdown links read better as their text.
+            .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
             .trim();
 
           parsed.push({

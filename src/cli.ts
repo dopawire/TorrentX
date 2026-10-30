@@ -166,6 +166,9 @@ for (const [commandName, mediaType, description] of [
   ["game", "game", "search games"],
   ["software", "software", "search software"],
   ["documentary", "documentary", "search documentaries"],
+  ["music", "music", "search music"],
+  ["books", "book", "search e-books and audiobooks"],
+  ["adult", "adult", "search adult content"],
 ] as const satisfies ReadonlyArray<readonly [string, MediaType, string]>) {
   addSearchOptions(
     program.command(commandName).description(description).argument("<query...>", "search terms"),

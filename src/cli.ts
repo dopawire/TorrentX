@@ -17,7 +17,7 @@ import { createDefaultSources } from "./sources/index.js";
 import { HttpClient } from "./services/http-client.js";
 import { SourceHealthTracker } from "./services/source-health.js";
 import { startTor, type TorHandle } from "./services/tor-service.js";
-import { warmupDns } from "./services/dns-warmup.js";
+import { shouldWarmupDns, warmupDns } from "./services/dns-warmup.js";
 import type { MediaType } from "./types/search.js";
 import type { SearchEngine as SearchEngineType } from "./core/search-engine.js";
 import { runInteractive } from "./ui/interactive.js";
@@ -31,10 +31,9 @@ const config = createConfig();
 const healthTracker = new SourceHealthTracker(undefined, {
   defaultTimeoutMs: config.sourceTimeoutMs,
 });
-void healthTracker.load();
-
-// Pre-resolve DNS for all source domains in the background
-warmupDns();
+// Started now, awaited before the first search so learned metrics are in
+// place before any source run records new ones.
+const healthLoaded = healthTracker.load();
 
 interface Runtime {
   engine: SearchEngineType;
@@ -63,13 +62,22 @@ async function ensureRuntime(wantTor?: boolean): Promise<Runtime> {
     });
     // --tor wins over any other proxy setting: it is the most explicit intent.
     config.socks5Proxy = tor.socksUrl;
+    config.tor = true;
+    // Someone who asked for Tor should not silently get direct retries when
+    // a request through Tor fails; that stays opt-in (proxyFallback: true).
+    config.proxyFallback ??= false;
     // Multi-hop circuits add seconds of latency per request; learned and
     // default timeouts would otherwise cut sources off mid-handshake.
     config.timeoutFloorMs = Math.max(config.timeoutFloorMs ?? 0, 30_000);
   }
 
+  // Pre-resolve DNS for all source domains in the background — only when
+  // source traffic actually uses the system resolver.
+  if (shouldWarmupDns(config)) warmupDns();
+
   const http = new HttpClient(config);
   if (tor) announceTorExit(http);
+  await healthLoaded;
 
   const pluginSources = await loadPluginSources(config.plugins ?? [], http);
   const sources = [...createDefaultSources(config), ...pluginSources];

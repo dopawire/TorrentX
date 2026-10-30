@@ -1,4 +1,5 @@
 import { lookup } from "node:dns/promises";
+import type { TorrentXConfig } from "../types/config.js";
 import { ALL_SOURCE_HOSTS } from "../sources/mirrors.js";
 
 /**
@@ -11,6 +12,27 @@ import { ALL_SOURCE_HOSTS } from "../sources/mirrors.js";
  *
  * Runs entirely in the background — never blocks or throws.
  */
+
+/**
+ * Warmup goes through the system resolver, so it only helps (and is only
+ * harmless) when source requests use that resolver too. With Tor, a proxy,
+ * DoH or a source proxy the lookups would be wasted — and would hand every
+ * source domain to the local resolver, which those modes exist to avoid.
+ */
+export function shouldWarmupDns(
+  config: Pick<
+    TorrentXConfig,
+    "tor" | "socks5Proxy" | "httpProxy" | "dnsResolver" | "sourceProxyUrl"
+  >,
+): boolean {
+  return (
+    !config.tor &&
+    !config.socks5Proxy &&
+    !config.httpProxy &&
+    !config.sourceProxyUrl &&
+    config.dnsResolver !== "doh"
+  );
+}
 
 /**
  * Warm up DNS resolution for all known source domains.

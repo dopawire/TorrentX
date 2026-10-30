@@ -1,6 +1,7 @@
 import type { HttpClient } from "../services/http-client.js";
 import type { SearchRequest, SourceAdapter, SearchResult } from "../types/search.js";
 import { SUBSPLEASE_HOST } from "./mirrors.js";
+import { infoHashFromMagnet } from "../utils/magnet.js";
 import { createResult } from "./source-utils.js";
 
 const API = `https://${SUBSPLEASE_HOST}/api/`;
@@ -96,10 +97,6 @@ function preferredDownload(downloads: readonly SubsPleaseDownload[]): SubsPlease
     if (match) return match;
   }
   return downloads.find((download) => download.magnet);
-}
-
-function infoHashFromMagnet(magnet: string): string | undefined {
-  return magnet.match(/[?&]xt=urn:btih:([^&]+)/i)?.[1]?.toLowerCase();
 }
 
 function magnetSize(magnet: string): number | undefined {

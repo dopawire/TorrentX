@@ -1,4 +1,5 @@
 import type { SearchResult } from "../types/search.js";
+import { infoHashFromMagnet } from "../utils/magnet.js";
 import { normalizeTitle } from "../utils/text.js";
 
 export function dedupeResults(results: SearchResult[]): SearchResult[] {
@@ -6,7 +7,7 @@ export function dedupeResults(results: SearchResult[]): SearchResult[] {
   const bestByFingerprint = new Map<string, SearchResult>();
 
   for (const result of results) {
-    const hash = result.magnetUri?.match(/urn:btih:([^&]+)/i)?.[1]?.toLowerCase();
+    const hash = infoHashFromMagnet(result.magnetUri);
     if (hash) {
       // Same info hash found on multiple sources: keep the healthiest copy
       // (most seeders, then highest score) rather than whichever came first.

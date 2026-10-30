@@ -37,7 +37,6 @@ const PROBE_QUERIES = {
   piratebay: "ubuntu",
   "1337x": "ubuntu",
   torrentgalaxy: "ubuntu",
-  solidtorrents: "ubuntu",
   bitsearch: "ubuntu",
   limetorrents: "ubuntu",
   fmhy: "streaming",

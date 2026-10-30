@@ -9,7 +9,6 @@ import { FmhyAdapter } from "./fmhy.js";
 import { LimeTorrentsAdapter } from "./limetorrents.js";
 import { NyaaAdapter } from "./nyaa.js";
 import { PirateBayAdapter } from "./piratebay.js";
-import { SolidTorrentsAdapter } from "./solidtorrents.js";
 import { SubsPleaseAdapter } from "./subsplease.js";
 import { TorrentGalaxyAdapter } from "./torrentgalaxy.js";
 import { YtsAdapter } from "./yts.js";
@@ -25,7 +24,6 @@ export function createDefaultSources(config: TorrentXConfig): SourceAdapter[] {
     new PirateBayAdapter(http),
     new Leet1337xAdapter(http),
     new TorrentGalaxyAdapter(http),
-    new SolidTorrentsAdapter(http),
     new BitsearchAdapter(http),
     new LimeTorrentsAdapter(http),
     new FmhyAdapter(http),
@@ -41,7 +39,6 @@ export {
   LimeTorrentsAdapter,
   NyaaAdapter,
   PirateBayAdapter,
-  SolidTorrentsAdapter,
   SubsPleaseAdapter,
   TorrentGalaxyAdapter,
   YtsAdapter,

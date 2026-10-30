@@ -29,8 +29,19 @@
  * Re-run after every `npm install` (wired up via `postinstall`).
  */
 import { readFile, writeFile } from "node:fs/promises";
+import { createRequire } from "node:module";
+import { dirname, join } from "node:path";
+import { pathToFileURL } from "node:url";
 
-const LIB_DIR = new URL("../node_modules/webtorrent/lib/", import.meta.url);
+/**
+ * Locate webtorrent the way Node does, not relative to this script: in a
+ * consumer install (`npx torrentx`, `npm i -g torrentx`) npm hoists it to the
+ * top-level node_modules, beside torrentx rather than inside it.
+ */
+function resolveLibDir() {
+  const entry = createRequire(import.meta.url).resolve("webtorrent");
+  return pathToFileURL(`${join(dirname(entry), "lib")}/`);
+}
 
 const PATCHES = [
   {
@@ -108,34 +119,44 @@ const PATCHES = [
   },
 ];
 
-const files = new Map();
+async function patchWebtorrent(libDir) {
+  const files = new Map();
 
-for (const { name, file, broken, fixed } of PATCHES) {
-  if (!files.has(file)) {
-    files.set(file, await readFile(new URL(file, LIB_DIR), "utf8"));
-  }
-  let source = files.get(file);
+  for (const { name, file, broken, fixed } of PATCHES) {
+    if (!files.has(file)) {
+      files.set(file, await readFile(new URL(file, libDir), "utf8"));
+    }
+    const source = files.get(file);
 
-  if (source.includes(fixed)) {
-    console.log(`webtorrent: ${name} — already patched.`);
-    continue;
+    if (source.includes(fixed)) {
+      console.log(`webtorrent: ${name} — already patched.`);
+      continue;
+    }
+    if (source.includes(broken)) {
+      files.set(file, source.replace(broken, fixed));
+      console.log(`webtorrent: ${name} — patched.`);
+      continue;
+    }
+    console.warn(
+      `webtorrent: ${name} — expected code not found; the dependency ` +
+        `probably changed version. Downloads will refuse to start until ` +
+        `scripts/patch-webtorrent.mjs is updated for the new version.`,
+    );
   }
-  if (source.includes(broken)) {
-    files.set(file, source.replace(broken, fixed));
-    console.log(`webtorrent: ${name} — patched.`);
-    continue;
-  }
-  console.warn(
-    `webtorrent: ${name} — expected code not found; the dependency ` +
-      `probably changed version. Downloads will refuse to start until ` +
-      `scripts/patch-webtorrent.mjs is updated for the new version.`,
-  );
-}
 
-for (const [file, source] of files) {
-  await writeFile(new URL(file, LIB_DIR), source, "utf8");
+  for (const [file, source] of files) {
+    await writeFile(new URL(file, libDir), source, "utf8");
+  }
 }
 
 // Intentionally exit 0 even when patches cannot be applied: a broken npm
 // install is worse than an unpatched dependency, and DownloadEngine fails
 // fast at runtime when the patches are missing.
+try {
+  await patchWebtorrent(resolveLibDir());
+} catch (error) {
+  console.warn(
+    `webtorrent: could not apply patches (${error instanceof Error ? error.message : String(error)}). ` +
+      "Downloads will refuse to start until `node scripts/patch-webtorrent.mjs` succeeds.",
+  );
+}

@@ -2,6 +2,7 @@ import type { SearchRequest, SourceAdapter } from "../types/search.js";
 import type { HttpClient } from "../services/http-client.js";
 import { buildMagnet } from "../utils/magnet.js";
 import { parseSize } from "../utils/size.js";
+import { decodeEntities } from "../utils/text.js";
 import { LIMETORRENTS_DOMAINS as DOMAINS } from "./mirrors.js";
 import { createResult, raceMirrors } from "./source-utils.js";
 
@@ -64,11 +65,7 @@ export class LimeTorrentsAdapter implements SourceAdapter {
       if (!titleMatch) continue;
 
       const detailsPath = titleMatch[1]!;
-      const title = titleMatch[2]!
-        .trim()
-        .replace(/&amp;/g, "&")
-        .replace(/&#39;/g, "'")
-        .replace(/&quot;/g, '"');
+      const title = decodeEntities(titleMatch[2]!.trim());
       if (!title || title.length < 3) continue;
 
       const detailsUrl = `https://${domain}${detailsPath}`;

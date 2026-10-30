@@ -40,6 +40,7 @@ const DEFAULT_TIMEOUT = 8_000;
 const MIN_TIMEOUT = 3_000;
 const MAX_TIMEOUT = 15_000;
 const DECAY_FACTOR = 0.7; // Weight for historical average vs new observation
+const TIMEOUT_BACKOFF = 1.5; // Timeout growth after a run that timed out
 const MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000; // Discard metrics older than 7 days
 
 export class SourceHealthTracker {
@@ -91,6 +92,8 @@ export class SourceHealthTracker {
         for (const [id, m] of Object.entries(data)) {
           // Discard stale metrics
           if (now - m.lastSeen > MAX_AGE_MS) continue;
+          // Runs recorded this session (before load finished) are newer.
+          if (this.metrics.has(id)) continue;
           this.metrics.set(id, m);
         }
         this.dirty = true; // Persist back in enveloped format on next save
@@ -153,8 +156,14 @@ export class SourceHealthTracker {
     this.dirty = true;
   }
 
-  /** Record a source failure (timeout, network error, etc.). */
-  recordFailure(sourceId: string): void {
+  /**
+   * Record a source failure (timeout, network error, etc.).
+   *
+   * A timeout also widens the source's adaptive timeout: it is otherwise
+   * only derived from successful runs, so a source that got slower would
+   * keep timing out at its old, short budget and never recover.
+   */
+  recordFailure(sourceId: string, options: { timedOut?: boolean } = {}): void {
     const existing = this.metrics.get(sourceId);
     const now = Date.now();
 
@@ -162,6 +171,11 @@ export class SourceHealthTracker {
       existing.failures++;
       existing.lastSeen = now;
       existing.learnedReliability = this.computeReliability(existing);
+      if (options.timedOut) {
+        existing.adaptiveTimeoutMs = Math.round(
+          Math.min(MAX_TIMEOUT, existing.adaptiveTimeoutMs * TIMEOUT_BACKOFF),
+        );
+      }
     } else {
       this.metrics.set(sourceId, {
         avgResponseMs: this.defaultTimeoutMs,

@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import os from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve, sep } from "node:path";
 import type { TorrentXConfig } from "../types/config.js";
 
 /**
@@ -14,14 +14,22 @@ import type { TorrentXConfig } from "../types/config.js";
  *
  * Unknown keys are ignored; malformed values fall back to defaults instead
  * of crashing the CLI.
+ *
+ * `plugins` run arbitrary code, so they are only honoured from the user's
+ * own config directory — never from a file that merely sits in the current
+ * directory (which could be a downloaded torrent's folder).
  */
-export function defaultConfigCandidates(): string[] {
+export function userConfigDir(): string {
   const xdg = process.env.XDG_CONFIG_HOME ?? join(os.homedir(), ".config");
+  return join(xdg, "torrentx");
+}
+
+export function defaultConfigCandidates(): string[] {
   return [
     join(process.cwd(), "torrentx.json"),
     join(process.cwd(), ".torrentxrc"),
-    join(xdg, "torrentx", "config.json"),
-    join(xdg, "torrentx", "torrentx.json"),
+    join(userConfigDir(), "config.json"),
+    join(userConfigDir(), "torrentx.json"),
   ];
 }
 
@@ -46,13 +54,18 @@ const STRING_KEYS = [
 
 export function loadConfigFile(
   candidates: readonly string[] = defaultConfigCandidates(),
+  pluginDir: string = userConfigDir(),
 ): Partial<TorrentXConfig> {
   for (const candidate of candidates) {
     if (!existsSync(candidate)) continue;
     try {
       const parsed: unknown = JSON.parse(readFileSync(candidate, "utf8"));
       if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
-        return sanitize(parsed as Record<string, unknown>);
+        const file = resolve(candidate);
+        return sanitize(parsed as Record<string, unknown>, {
+          file,
+          allowPlugins: file.startsWith(resolve(pluginDir) + sep),
+        });
       }
     } catch {
       // Malformed file — ignore it and try the next candidate.
@@ -61,7 +74,10 @@ export function loadConfigFile(
   return {};
 }
 
-function sanitize(raw: Record<string, unknown>): Partial<TorrentXConfig> {
+function sanitize(
+  raw: Record<string, unknown>,
+  source: { file: string; allowPlugins: boolean },
+): Partial<TorrentXConfig> {
   const config: Partial<TorrentXConfig> = {};
 
   for (const key of NUMERIC_KEYS) {
@@ -94,10 +110,18 @@ function sanitize(raw: Record<string, unknown>): Partial<TorrentXConfig> {
   }
 
   const plugins = raw["plugins"];
-  if (Array.isArray(plugins)) {
-    config.plugins = plugins
-      .filter((entry): entry is string => typeof entry === "string" && entry.trim() !== "")
-      .map((entry) => resolve(entry.trim()));
+  if (Array.isArray(plugins) && plugins.length > 0) {
+    if (source.allowPlugins) {
+      // Relative entries are relative to the config file, not the cwd.
+      config.plugins = plugins
+        .filter((entry): entry is string => typeof entry === "string" && entry.trim() !== "")
+        .map((entry) => resolve(dirname(source.file), entry.trim()));
+    } else {
+      process.stderr.write(
+        `torrentx: ignoring "plugins" in ${source.file} — plugins are only loaded from ` +
+          `${join(userConfigDir(), "config.json")}\n`,
+      );
+    }
   }
 
   return config;

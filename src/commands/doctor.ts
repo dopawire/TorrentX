@@ -62,7 +62,7 @@ export function executeDoctor(config: TorrentXConfig): void {
 
   // Effective network settings, so support can see what is in play.
   const network = [
-    config.tor ? (config.proxyFallback === false ? "tor(strict)" : "tor") : null,
+    config.tor ? (config.proxyFallback === true ? "tor(direct-fallback)" : "tor(strict)") : null,
     config.socks5Proxy ? `socks5=${config.socks5Proxy}` : null,
     config.httpProxy ? `http=${config.httpProxy}` : null,
     config.dnsResolver === "doh" ? `dns=doh(${config.dohUrl ?? "cloudflare"})` : "dns=system",

@@ -16,6 +16,7 @@ import { MetadataService } from "../services/metadata-service.js";
 import { rankResults } from "../services/ranking-service.js";
 import { describeSourceFailure } from "../services/source-failure.js";
 import { SourceHealthTracker } from "../services/source-health.js";
+import { infoHashFromMagnet } from "../utils/magnet.js";
 import { inferSearchIntent, expandQuery } from "./query-intelligence.js";
 
 interface CachedSearch {
@@ -203,14 +204,14 @@ export class SearchEngine {
     // Count how many distinct sources have each info hash
     const hashSourceCount = new Map<string, Set<string>>();
     for (const r of allResults) {
-      const hash = r.magnetUri?.match(/urn:btih:([^&]+)/i)?.[1]?.toLowerCase();
+      const hash = infoHashFromMagnet(r.magnetUri);
       if (!hash) continue;
       if (!hashSourceCount.has(hash)) hashSourceCount.set(hash, new Set());
       hashSourceCount.get(hash)!.add(r.source);
     }
 
     return results.map((r) => {
-      const hash = r.magnetUri?.match(/urn:btih:([^&]+)/i)?.[1]?.toLowerCase();
+      const hash = infoHashFromMagnet(r.magnetUri);
       if (!hash) return r;
       const sourceCount = hashSourceCount.get(hash)?.size ?? 1;
       if (sourceCount <= 1) return r;
@@ -306,6 +307,9 @@ export class SearchEngine {
     }, timeoutMs);
     const abort = () => controller.abort();
     signal?.addEventListener("abort", abort, { once: true });
+    // A listener added to an already-aborted signal never fires: cancel now
+    // so the run is reported as cancelled instead of running to a timeout.
+    if (signal?.aborted) controller.abort();
 
     try {
       const results = await source.search({ ...request, signal: controller.signal });
@@ -330,7 +334,7 @@ export class SearchEngine {
       // cancelled (user abort, query change, shutdown): that would mark
       // healthy sources as unreliable and inflate their timeout stats.
       if (failure.kind !== "cancelled") {
-        this.health.recordFailure(source.id);
+        this.health.recordFailure(source.id, { timedOut: failure.kind === "timeout" });
       }
 
       return {

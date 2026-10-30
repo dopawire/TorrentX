@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 import { createConfig } from "../src/core/config.js";
 import { SearchEngine } from "../src/core/search-engine.js";
 import { CacheService } from "../src/services/cache-service.js";
+import { SourceHealthTracker } from "../src/services/source-health.js";
 import { createResult } from "../src/sources/source-utils.js";
 import type { SourceAdapter } from "../src/types/search.js";
 
@@ -210,3 +211,51 @@ function waitUntilAborted(signal: AbortSignal): Promise<never> {
     );
   });
 }
+
+describe("SearchEngine cancellation", () => {
+  it("cancels sources at once when the search signal is already aborted", async () => {
+    let sawAborted = false;
+    const hanging: SourceAdapter = {
+      id: "hanging",
+      name: "Hanging",
+      reliability: 0.5,
+      mediaTypes: ["other"],
+      regions: ["global"],
+      async search(request) {
+        sawAborted = request.signal?.aborted === true;
+        return new Promise((_resolve, reject) => {
+          if (request.signal?.aborted) reject(new DOMException("Aborted", "AbortError"));
+          request.signal?.addEventListener("abort", () =>
+            reject(new DOMException("Aborted", "AbortError")),
+          );
+        });
+      },
+    };
+    const directory = await mkdtemp(path.join(os.tmpdir(), "torrentx-test-"));
+    const config = createConfig({ sourceTimeoutMs: 5_000 });
+    const health = new SourceHealthTracker(path.join(directory, "health.json"));
+    const engine = new SearchEngine(
+      [hanging],
+      config,
+      new CacheService(config.cacheTtlMs, directory),
+      health,
+    );
+
+    const controller = new AbortController();
+    controller.abort();
+    const startedAt = Date.now();
+    await expect(
+      engine.search("example", {
+        enrich: false,
+        cache: false,
+        expandQuery: false,
+        signal: controller.signal,
+      }),
+    ).rejects.toThrow(/aborted/i);
+
+    expect(sawAborted).toBe(true);
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
+    // A cancelled run must not count against the source.
+    expect(health.getLearnedReliability("hanging")).toBeUndefined();
+  });
+});

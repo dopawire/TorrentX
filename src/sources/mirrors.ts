@@ -8,21 +8,13 @@
 
 // ---- multi-mirror sources (raced by raceMirrors) ----
 
-export const YTS_DOMAINS = [
-  "movies-api.accel.li",
-  "yts.lt",
-  "yts.gg",
-  "yts.mx",
-  "yts.am",
-  "yts.do",
-];
+// accel.li is the API's announced new base URL; yts.gg still serves it too.
+// (yts.lt and yts.am only redirect to yts.gg; yts.mx and yts.do are dead.)
+export const YTS_DOMAINS = ["movies-api.accel.li", "yts.gg"];
 
-export const LEET1337X_DOMAINS = [
-  "1337x.to",
-  "1337x.st",
-  "1337x.gd",
-  "1337x.is",
-];
+// 1337x.gd no longer resolves; 1337x.is is a parked domain whose ad page
+// parsed as an empty result and masked the real mirrors' status.
+export const LEET1337X_DOMAINS = ["1337x.to", "1337x.st"];
 
 export const EZTV_DOMAINS = [
   "eztvx.to",
@@ -40,7 +32,6 @@ export const TORRENTGALAXY_DOMAINS = [
   "tgx.rs",
 ];
 
-export const SOLIDTORRENTS_DOMAINS = ["solidtorrents.to", "solidtorrents.net"];
 
 export const LIMETORRENTS_DOMAINS = [
   "www.limetorrents.lol",
@@ -48,7 +39,8 @@ export const LIMETORRENTS_DOMAINS = [
   "limetorrents.cc",
 ];
 
-export const BITSEARCH_DOMAINS = ["bitsearch.to"];
+// SolidTorrents now redirects here, and bitsearch.to redirects to .eu.
+export const BITSEARCH_DOMAINS = ["bitsearch.eu", "bitsearch.to"];
 
 // ---- single-endpoint sources (hostnames) ----
 
@@ -64,20 +56,17 @@ export const FMHY_API_HOST = "api.fmhy.net";
  */
 export const ALL_SOURCE_HOSTS: string[] = [
   // JSON API sources (fastest, warm first)
-  ...YTS_DOMAINS.slice(0, 2),
+  ...YTS_DOMAINS,
   NYAA_HOST,
   SUBSPLEASE_HOST,
   ...EZTV_DOMAINS.slice(0, 2),
   PIRATEBAY_HOST,
-  ...SOLIDTORRENTS_DOMAINS.slice(0, 1),
-  BITSEARCH_DOMAINS[0]!,
+  ...BITSEARCH_DOMAINS,
   FITGIRL_HOST,
   FMHY_API_HOST,
   // HTML scraping mirrors
-  ...YTS_DOMAINS.slice(2),
   ...LEET1337X_DOMAINS,
   ...EZTV_DOMAINS.slice(2),
   ...TORRENTGALAXY_DOMAINS,
-  ...SOLIDTORRENTS_DOMAINS.slice(1),
   ...LIMETORRENTS_DOMAINS,
 ];

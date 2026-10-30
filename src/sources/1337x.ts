@@ -1,6 +1,7 @@
 import type { SearchRequest, SourceAdapter } from "../types/search.js";
 import type { HttpClient } from "../services/http-client.js";
 import { parseSize } from "../utils/size.js";
+import { decodeEntities, detectLanguageFromTitle } from "../utils/text.js";
 import { LEET1337X_DOMAINS as DOMAINS } from "./mirrors.js";
 import { createResult, raceMirrors } from "./source-utils.js";
 
@@ -78,11 +79,7 @@ export class Leet1337xAdapter implements SourceAdapter {
       if (!titleMatch) continue;
 
       const detailPath = titleMatch[1]!;
-      const title = titleMatch[2]!
-        .trim()
-        .replace(/&amp;/g, "&")
-        .replace(/&#39;/g, "'")
-        .replace(/&quot;/g, '"');
+      const title = decodeEntities(titleMatch[2]!.trim());
       if (!title || title.length < 3) continue;
 
       // Extract seeders (coll-2) and leechers (coll-3)
@@ -128,10 +125,8 @@ export class Leet1337xAdapter implements SourceAdapter {
           const magnetMatch = detailHtml.match(/href="(magnet:\?[^"]+)"/i);
           if (!magnetMatch) return null;
 
-          const magnetUri = magnetMatch[1]!
-            .replace(/&amp;/g, "&");
+          const magnetUri = decodeEntities(magnetMatch[1]!);
 
-          // Detect language from title
           const language = detectLanguageFromTitle(row.title);
 
           return createResult({
@@ -159,24 +154,6 @@ export class Leet1337xAdapter implements SourceAdapter {
 
     return results;
   }
-}
-
-/**
- * Detect Indian languages from torrent title.
- */
-export function detectLanguageFromTitle(title: string): string | undefined {
-  const lower = title.toLowerCase();
-  if (/\bhindi\b/.test(lower)) return "hindi";
-  if (/\btamil\b/.test(lower)) return "tamil";
-  if (/\btelugu\b/.test(lower)) return "telugu";
-  if (/\bmalayalam\b/.test(lower)) return "malayalam";
-  if (/\bkannada\b/.test(lower)) return "kannada";
-  if (/\bbengali\b/.test(lower)) return "bengali";
-  if (/\bpunjabi\b/.test(lower)) return "punjabi";
-  if (/\benglish\b/.test(lower) || /\beng\b/.test(lower)) return "english";
-  if (/\bjapanese\b/.test(lower)) return "japanese";
-  if (/\bkorean\b/.test(lower)) return "korean";
-  return undefined;
 }
 
 /**

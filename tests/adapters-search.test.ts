@@ -10,7 +10,6 @@ import { FmhyAdapter } from "../src/sources/fmhy.js";
 import { LimeTorrentsAdapter } from "../src/sources/limetorrents.js";
 import { NyaaAdapter } from "../src/sources/nyaa.js";
 import { PirateBayAdapter } from "../src/sources/piratebay.js";
-import { SolidTorrentsAdapter } from "../src/sources/solidtorrents.js";
 import { SubsPleaseAdapter } from "../src/sources/subsplease.js";
 import { TorrentGalaxyAdapter } from "../src/sources/torrentgalaxy.js";
 import { YtsAdapter } from "../src/sources/yts.js";
@@ -275,15 +274,10 @@ describe("adapter search() with stubbed HTTP", () => {
     expect(await adapter.search(request({ top: "today", query: "" }))).toEqual([]);
   });
 
-  it("solidtorrents and bitsearch map api results and skip top", async () => {
-    const solid = new SolidTorrentsAdapter(stubHttp({ json: () => SOLID_PAYLOAD }));
-    const found = await solid.search(request());
-    expect(found[0]).toMatchObject({ title: "Test Linux ISO", seeders: 9 });
-    expect(await solid.search(request({ top: "week", query: "" }))).toEqual([]);
-
+  it("bitsearch maps api results and skips top", async () => {
     const bitsearch = new BitsearchAdapter(stubHttp({ json: () => SOLID_PAYLOAD }));
     const found2 = await bitsearch.search(request());
-    expect(found2[0]?.title).toContain("Test Linux ISO");
+    expect(found2[0]).toMatchObject({ title: "Test Linux ISO", seeders: 9 });
     expect(await bitsearch.search(request({ top: "week", query: "" }))).toEqual([]);
   });
 

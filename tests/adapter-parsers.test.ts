@@ -6,7 +6,6 @@ import { parseFitgirlResults } from "../src/sources/fitgirl.js";
 import { LimeTorrentsAdapter } from "../src/sources/limetorrents.js";
 import { parseNyaaResults } from "../src/sources/nyaa.js";
 import { mapPirateBayResults } from "../src/sources/piratebay.js";
-import { mapSolidTorrentsResults } from "../src/sources/solidtorrents.js";
 import { mapSubsPleaseResults } from "../src/sources/subsplease.js";
 import {
   approxIsoFromAge,
@@ -273,15 +272,15 @@ describe("eztv mapper", () => {
   });
 });
 
-describe("solidtorrents / bitsearch mappers", () => {
+describe("bitsearch mapper", () => {
   const payload = {
     results: [
       { id: "abc", infohash: "1111111111111111111111111111111111111111", title: "Some Linux ISO", size: 2_500_000_000, category: 1, seeders: 200, leechers: 10, downloads: 5, verified: true, updatedAt: "2024-05-01T12:00:00Z" },
     ],
   };
 
-  it("maps solidtorrents results with magnets and dates", () => {
-    const results = mapSolidTorrentsResults(payload, "solidtorrents.to", 10);
+  it("maps results with magnets and dates", () => {
+    const results = mapBitsearchResults(payload, "bitsearch.eu", 10);
     expect(results).toHaveLength(1);
     expect(results[0]).toMatchObject({
       title: "Some Linux ISO",

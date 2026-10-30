@@ -1,5 +1,5 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, readdirSync, rmSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, renameSync, rmSync, statSync } from "node:fs";
 import os from "node:os";
 import { join } from "node:path";
 import envPaths from "env-paths";
@@ -17,6 +17,18 @@ import envPaths from "env-paths";
  */
 
 const BOOTSTRAP_TIMEOUT_MS = 120_000;
+/** How long bootstrap may go without advancing before the run counts as stuck. */
+const STALL_TIMEOUT_MS = 45_000;
+const STALLED_MESSAGE = "Tor bootstrap made no progress";
+
+/**
+ * What Tor logs when another process holds the data directory. With
+ * `--Log notice stdout` these lines arrive on stdout, not stderr:
+ *   "It looks like another Tor process is running with the same data directory."
+ *   "Couldn't lock ..." / "No, it's still there.  Exiting."
+ */
+const DATA_DIR_LOCKED =
+  /another Tor process is running with the same data directory|couldn't lock|data dir(?:ectory)? locked/i;
 
 export interface TorHandle {
   socksPort: number;
@@ -32,6 +44,8 @@ export interface StartTorOptions {
   args?: string[];
   dataDirectory?: string;
   bootstrapTimeoutMs?: number;
+  /** Give up on a run whose bootstrap stops advancing for this long (default 45s). */
+  stallTimeoutMs?: number;
   onProgress?: (percent: number) => void;
 }
 
@@ -102,11 +116,11 @@ export async function startTor(options: StartTorOptions = {}): Promise<TorHandle
 
   let handle: LaunchHandle;
   try {
-    handle = await launch(binary, args, options);
+    handle = await launchWithStallRecovery(binary, args, baseDir, options);
   } catch (error) {
     // Another TorrentX instance may hold the shared data-dir lock.
     const message = error instanceof Error ? error.message : String(error);
-    if (message.includes("locked")) {
+    if (DATA_DIR_LOCKED.test(message)) {
       const fallback = join(baseDir, `run-${process.pid}-${Date.now()}`);
       handle = await launch(
         binary,
@@ -120,6 +134,39 @@ export async function startTor(options: StartTorOptions = {}): Promise<TorHandle
   }
 
   return handle;
+}
+
+/**
+ * Tor keeps its chosen entry guards in <DataDirectory>/state and insists on
+ * them. After the network path changes (a VPN switched on, a new ISP route)
+ * those guards can be unreachable or crawling, and bootstrap stalls (at 0%,
+ * or part-way while loading relay descriptors through them). When bootstrap
+ * stops advancing, set the state file aside — Tor rebuilds it and picks
+ * fresh guards — and try once more. The cached directory data is kept, so
+ * the retry is fast.
+ */
+async function launchWithStallRecovery(
+  binary: string,
+  args: string[],
+  dataDirectory: string,
+  options: StartTorOptions,
+): Promise<LaunchHandle> {
+  try {
+    return await launch(binary, args, options);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.startsWith(STALLED_MESSAGE)) throw error;
+    const state = join(dataDirectory, "state");
+    if (existsSync(state)) {
+      try {
+        renameSync(state, `${state}.stale-${Date.now()}`);
+      } catch {
+        // Unmovable state file: the retry will most likely stall again.
+      }
+    }
+    options.onProgress?.(0);
+    return launch(binary, args, options);
+  }
 }
 
 function torArgs(dataDirectory: string): string[] {
@@ -162,7 +209,14 @@ function launch(
     const cleanupDirs: string[] = [];
     let socksPort: number | undefined;
     let bootstrapped = false;
-    let stderrTail = "";
+    // Tail of both streams: Tor's own log goes to stdout (--Log notice
+    // stdout), early startup failures may go to stderr.
+    let outputTail = "";
+    const keepTail = (chunk: Buffer) => {
+      outputTail = `${outputTail}${chunk.toString()}`.slice(-800);
+    };
+    // Lines can be split across chunks; only complete lines are parsed.
+    let partialLine = "";
     let settled = false;
 
     const timeout = setTimeout(() => {
@@ -174,15 +228,41 @@ function launch(
       );
     }, options.bootstrapTimeoutMs ?? BOOTSTRAP_TIMEOUT_MS);
     timeout.unref?.();
+    // Restarted whenever the bootstrap percentage advances.
+    let lastPercent = -1;
+    let stallTimer: ReturnType<typeof setTimeout> | undefined;
+    const armStallTimer = () => {
+      clearTimeout(stallTimer);
+      stallTimer = setTimeout(() => {
+        finish(
+          new Error(
+            `${STALLED_MESSAGE} for ${options.stallTimeoutMs ?? STALL_TIMEOUT_MS}ms ` +
+              `(stuck at ${Math.max(0, lastPercent)}%).`,
+          ),
+        );
+      }, options.stallTimeoutMs ?? STALL_TIMEOUT_MS);
+      stallTimer.unref?.();
+    };
+    armStallTimer();
 
     const finish = (error?: Error) => {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
+      clearTimeout(stallTimer);
       if (error) {
-        if (child.exitCode === null && !child.killed) child.kill("SIGTERM");
-        for (const dir of cleanupDirs) rmSync(dir, { recursive: true, force: true });
-        reject(error);
+        const cleanup = () => {
+          for (const dir of cleanupDirs) rmSync(dir, { recursive: true, force: true });
+          reject(error);
+        };
+        // Reject only once the daemon is gone: Tor rewrites its state file
+        // and releases the data-dir lock on exit, and callers retry against
+        // that same directory.
+        if (child.pid !== undefined && child.exitCode === null && child.signalCode === null) {
+          void stopProcess(child).then(cleanup);
+        } else {
+          cleanup();
+        }
         return;
       }
       resolve({
@@ -203,13 +283,20 @@ function launch(
     };
 
     child.stdout?.on("data", (chunk: Buffer) => {
-      for (const line of chunk.toString().split(/\r?\n/)) {
+      keepTail(chunk);
+      const lines = `${partialLine}${chunk.toString()}`.split(/\r?\n/);
+      partialLine = lines.pop() ?? "";
+      for (const line of lines) {
         const portMatch = line.match(/Opened Socks listener connection \(ready\) on .+:(\d+)/);
         if (portMatch) {
           socksPort = Number(portMatch[1]);
         }
         const bootstrapMatch = line.match(/Bootstrapped (\d+)%/);
         if (bootstrapMatch) {
+          if (Number(bootstrapMatch[1]) > lastPercent) {
+            lastPercent = Number(bootstrapMatch[1]);
+            armStallTimer();
+          }
           options.onProgress?.(Number(bootstrapMatch[1]));
           if (Number(bootstrapMatch[1]) >= 100) bootstrapped = true;
         }
@@ -217,9 +304,7 @@ function launch(
       }
     });
 
-    child.stderr?.on("data", (chunk: Buffer) => {
-      stderrTail = `${stderrTail}${chunk.toString()}`.slice(-800);
-    });
+    child.stderr?.on("data", keepTail);
 
     child.on("error", (error: NodeJS.ErrnoException) => {
       finish(
@@ -233,7 +318,7 @@ function launch(
       if (settled) return;
       finish(
         new Error(
-          `Tor exited with code ${code} before bootstrap.${stderrTail ? ` ${stderrTail.trim()}` : ""}`,
+          `Tor exited with code ${code} before bootstrap.${outputTail ? ` ${outputTail.trim()}` : ""}`,
         ),
       );
     });
@@ -264,14 +349,15 @@ async function stopProcess(child: ChildProcess): Promise<void> {
 }
 
 /**
- * Remove per-run data directories left behind by crashed runs (older than a
- * day — anything younger may belong to a concurrent TorrentX instance).
+ * Remove per-run data directories left behind by crashed runs, and state
+ * files set aside by stall recovery (older than a day — anything younger
+ * may belong to a concurrent TorrentX instance).
  */
 export function pruneStaleTorData(root = torDataRoot()): void {
   const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
   try {
     for (const entry of readdirSync(root)) {
-      if (!entry.startsWith("run-")) continue;
+      if (!entry.startsWith("run-") && !entry.startsWith("state.stale-")) continue;
       const path = join(root, entry);
       try {
         if (statSync(path).mtimeMs < dayAgo) {

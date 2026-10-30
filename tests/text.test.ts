@@ -1,5 +1,14 @@
 import { describe, expect, it } from "vitest";
-import { detectCodec, detectMediaType, detectQuality, normalizeTitle } from "../src/utils/text.js";
+import {
+  decodeEntities,
+  detectCodec,
+  detectLanguageFromTitle,
+  detectMediaType,
+  detectQuality,
+  escapeRegExp,
+  normalizeTitle,
+  stripControlChars,
+} from "../src/utils/text.js";
 
 describe("detectQuality", () => {
   it("does not treat HDR as a resolution", () => {
@@ -39,5 +48,43 @@ describe("detectMediaType", () => {
 describe("normalizeTitle", () => {
   it("strips release noise for better deduplication", () => {
     expect(normalizeTitle("Movie.Name.2024.1080p.BluRay.x264-YTS")).toBe("movie name 2024");
+  });
+});
+
+describe("stripControlChars", () => {
+  it("removes terminal escape sequences and other control characters", () => {
+    expect(stripControlChars("Movie\u001b]52;c;ZXZpbA==\u0007 1080p")).toBe("Movie ]52;c;ZXZpbA== 1080p");
+    expect(stripControlChars("a\u009b31mb\tc\nd")).toBe("a 31mb c d");
+    expect(stripControlChars("Ünïcödé — fine")).toBe("Ünïcödé — fine");
+  });
+});
+
+describe("decodeEntities", () => {
+  it("decodes named and numeric entities in one pass", () => {
+    expect(decodeEntities("Tom &amp; Jerry &#8211; &quot;Best&quot; &#39;Of&#039;")).toBe(
+      "Tom & Jerry – \"Best\" 'Of'",
+    );
+    expect(decodeEntities("magnet:?xt=urn:btih:abc&#038;dn=x&amp;tr=y")).toBe(
+      "magnet:?xt=urn:btih:abc&dn=x&tr=y",
+    );
+    expect(decodeEntities("&#x41;&#66;")).toBe("AB");
+    // Single pass: an escaped entity stays an entity.
+    expect(decodeEntities("&amp;lt;")).toBe("&lt;");
+    expect(decodeEntities("&unknown; &#0;")).toBe("&unknown; &#0;");
+  });
+});
+
+describe("escapeRegExp", () => {
+  it("escapes every regex metacharacter", () => {
+    const pattern = new RegExp(escapeRegExp("c++ (a|b).*"));
+    expect(pattern.test("learn c++ (a|b).* today")).toBe(true);
+  });
+});
+
+describe("detectLanguageFromTitle", () => {
+  it("detects language tags", () => {
+    expect(detectLanguageFromTitle("Movie 2024 Hindi 1080p")).toBe("hindi");
+    expect(detectLanguageFromTitle("Show S01 Korean")).toBe("korean");
+    expect(detectLanguageFromTitle("Plain Title")).toBeUndefined();
   });
 });

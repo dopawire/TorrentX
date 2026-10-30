@@ -94,7 +94,11 @@ export class LimeTorrentsAdapter implements SourceAdapter {
 
       // td order: [name_cell, date_category, size, seeders, leechers, health]
       // The first td contains the tt-name div, so useful data starts at index 1
-      const sizeStr = tdValues.find((v) => /\d+(?:\.\d+)?\s*(?:GB|MB|KB|TB)/i.test(v));
+      // The size cell holds only the size; a title like "...WEBRip 1600MB..."
+      // must not be mistaken for it.
+      const sizeStr = tdValues
+        .find((v) => /^[\d.,]+\s*[KMGT]i?B$/i.test(v))
+        ?.replace(/,/g, "");
       const seeders = Number(tdValues.find((v) => /^\d+$/.test(v.replace(/,/g, "")))?.replace(/,/g, "")) || 0;
 
       // Find seeders/leechers from tdseed/tdleech classes
@@ -119,6 +123,57 @@ export class LimeTorrentsAdapter implements SourceAdapter {
       );
     }
 
-    return results;
+    return dropFakeListings(results);
   }
+}
+
+/** Episode markers: S01E02, 1x02, "Episode 5", "Ep 5", " - 379" (not a year). */
+const EPISODE_MARKER =
+  /\bs\d{1,2}e\d{1,3}\b|\b\d{1,2}x\d{2}\b|\bep(?:isode)?\.?\s*\d{1,4}\b| - (?!(?:19|20)\d{2}\b)\d{1,4}\b/i;
+
+/**
+ * LimeTorrents mixes in fake listings with fabricated swarm numbers, which
+ * otherwise outrank real torrents. Two patterns, verified against live
+ * result pages:
+ *
+ * 1. Generated counts: leechers almost exactly two-thirds of seeders
+ *    (e.g. 56,366 / 37,561), typically on tiny "Windows" or "Photoshop"
+ *    uploads claiming tens of thousands of seeders.
+ * 2. Clusters: several different listings with near-identical size and
+ *    near-identical seeder counts, e.g. dozens of "Inception 2010 Italian/
+ *    French/Japanese DVDRip" at exactly 755.53 MB with ~1,400 seeders each.
+ *    Episodes of one series legitimately share a size, so clusters whose
+ *    titles are mostly numbered episodes are left alone.
+ */
+export function dropFakeListings<
+  T extends { title: string; seeders: number; leechers: number; sizeBytes?: number },
+>(results: T[]): T[] {
+  const fake = new Set<number>();
+
+  results.forEach((result, index) => {
+    if (
+      result.seeders >= 1_000 &&
+      Math.abs(result.leechers / result.seeders - 2 / 3) < 0.003
+    ) {
+      fake.add(index);
+    }
+  });
+
+  results.forEach((result) => {
+    const size = result.sizeBytes;
+    if (result.seeders < 500 || !size) return;
+    const cluster = results.flatMap((other, index) =>
+      other.sizeBytes &&
+      Math.abs(other.sizeBytes - size) <= 0.08 * size &&
+      Math.abs(other.seeders - result.seeders) <= 0.12 * result.seeders
+        ? [index]
+        : [],
+    );
+    if (cluster.length < 4) return;
+    const episodes = cluster.filter((index) => EPISODE_MARKER.test(results[index]!.title));
+    if (episodes.length * 2 >= cluster.length) return;
+    for (const index of cluster) fake.add(index);
+  });
+
+  return results.filter((_, index) => !fake.has(index));
 }

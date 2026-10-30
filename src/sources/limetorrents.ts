@@ -1,4 +1,4 @@
-import type { SearchRequest, SourceAdapter } from "../types/search.js";
+import type { MediaType, SearchRequest, SourceAdapter } from "../types/search.js";
 import type { HttpClient } from "../services/http-client.js";
 import { buildMagnet } from "../utils/magnet.js";
 import { parseSize } from "../utils/size.js";
@@ -18,11 +18,23 @@ import { createResult, raceMirrors } from "./source-utils.js";
  *
  * The first few rows are ads (no itorrents link) and must be skipped.
  */
+/** Media type of a LimeTorrents category ("1 Year+ - in Movies"). */
+const LIME_MEDIA_TYPES: Record<string, MediaType> = {
+  movies: "movie",
+  "tv-shows": "tv",
+  tv: "tv",
+  anime: "anime",
+  applications: "software",
+  games: "game",
+  music: "music",
+};
+
 export class LimeTorrentsAdapter implements SourceAdapter {
   readonly id = "limetorrents";
   readonly name = "LimeTorrents";
   readonly reliability = 0.75;
-  readonly mediaTypes = ["movie", "tv", "anime", "game", "software", "documentary", "other"] as const;
+  // No book or adult categories on this index.
+  readonly mediaTypes = ["movie", "tv", "anime", "game", "software", "documentary", "music", "other"] as const;
   readonly regions = ["global", "usa", "india", "europe"] as const;
 
   constructor(private readonly http: HttpClient) {}
@@ -88,6 +100,8 @@ export class LimeTorrentsAdapter implements SourceAdapter {
       // Find seeders/leechers from tdseed/tdleech classes
       const seedMatch = rowHtml.match(/<td[^>]*class="tdseed"[^>]*>([^<]*)<\/td>/i);
       const leechMatch = rowHtml.match(/<td[^>]*class="tdleech"[^>]*>([^<]*)<\/td>/i);
+      // Date cell: "1 Year+ - in Movies" (category sometimes linked).
+      const categoryMatch = rowHtml.match(/ - in (?:<a[^>]*>)?([A-Za-z-]+)/i);
 
       results.push(
         createResult({
@@ -99,6 +113,7 @@ export class LimeTorrentsAdapter implements SourceAdapter {
           sizeBytes: parseSize(sizeStr),
           seeders: Number(seedMatch?.[1]?.replace(/,/g, "")) || seeders,
           leechers: Number(leechMatch?.[1]?.replace(/,/g, "")) || 0,
+          mediaType: categoryMatch ? LIME_MEDIA_TYPES[categoryMatch[1]!.toLowerCase()] : undefined,
           trusted: false,
         }),
       );

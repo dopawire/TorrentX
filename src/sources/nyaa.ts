@@ -28,7 +28,12 @@ const NYAA_CATEGORIES: Partial<Record<string, string>> = {
   movie: "4_3",
   game: "6_2",
   software: "6_1",
+  music: "2_0",
+  book: "3_0",
 };
+
+/** Categories applied to keyword searches too (Nyaa is anime-first otherwise). */
+const NYAA_SEARCH_CATEGORIES = new Set(["music", "book"]);
 
 /**
  * Pure mapper: parse a Nyaa RSS feed into search results. Exported for
@@ -76,7 +81,7 @@ export class NyaaAdapter implements SourceAdapter {
   readonly id = NYAA_ID;
   readonly name = "Nyaa";
   readonly reliability = NYAA_RELIABILITY;
-  readonly mediaTypes = ["anime", "tv", "movie", "other"] as const;
+  readonly mediaTypes = ["anime", "tv", "movie", "music", "book", "other"] as const;
   readonly regions = ["global", "japan", "korea", "china"] as const;
   readonly supportsTop = true;
 
@@ -95,6 +100,10 @@ export class NyaaAdapter implements SourceAdapter {
       if (category) url.searchParams.set("c", category);
     } else {
       url.searchParams.set("q", request.intent.query);
+      const mediaType = request.intent.mediaType;
+      if (mediaType && NYAA_SEARCH_CATEGORIES.has(mediaType)) {
+        url.searchParams.set("c", NYAA_CATEGORIES[mediaType]!);
+      }
     }
     const xml = await this.http.text(url.toString(), request.signal);
     const mapped = parseNyaaResults(xml, request.limit, request.intent);

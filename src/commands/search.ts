@@ -31,7 +31,7 @@ export function addSearchOptions(command: Command): Command {
     .option("--min-size <size>", "minimum size, for example 700MB")
     .option("--max-size <size>", "maximum size, for example 8GB")
     .option("-l, --language <language>", "language filter and search hint")
-    .option("-t, --type <type>", "media type: movie, tv, anime, game, software, documentary")
+    .option("-t, --type <type>", "media type: movie, tv, anime, game, software, documentary, music, book, adult")
     .option("--min-seeds <number>", "minimum number of seeders")
     .option("--codec <codec>", "codec filter, for example x265")
     .option("-n, --limit <number>", "maximum results", "100")
@@ -105,6 +105,9 @@ const MEDIA_TYPES: readonly MediaType[] = [
   "game",
   "software",
   "documentary",
+  "music",
+  "book",
+  "adult",
   "other",
 ];
 

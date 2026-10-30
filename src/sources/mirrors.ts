@@ -22,6 +22,8 @@ export const EZTV_DOMAINS = [
 ];
 
 export const TORRENTGALAXY_DOMAINS = [
+  // torrentgalaxy.one now redirects here.
+  "torrentgalaxy.online",
   "torrentgalaxy.one",
   "torrentgalaxy.to",
   "torrentgalaxy.mx",
@@ -30,6 +32,8 @@ export const TORRENTGALAXY_DOMAINS = [
 
 
 export const LIMETORRENTS_DOMAINS = [
+  // limetorrents.lol now redirects here.
+  "www.limetorrents.fun",
   "www.limetorrents.lol",
   "www.limetorrents.pro",
   "limetorrents.cc",

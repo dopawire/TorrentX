@@ -1,4 +1,4 @@
-import type { SearchRequest, SourceAdapter } from "../types/search.js";
+import type { MediaType, SearchRequest, SourceAdapter } from "../types/search.js";
 import type { HttpClient } from "../services/http-client.js";
 import { parseSize } from "../utils/size.js";
 import { decodeEntities, detectLanguageFromTitle } from "../utils/text.js";
@@ -23,6 +23,26 @@ interface TgxRow {
   magnetUri?: string | undefined;
   ageText?: string | undefined;
   trusted: boolean;
+  /** The row's TGX category name (e.g. "Movies", "XXX"), when present. */
+  category?: string | undefined;
+}
+
+/** Media type of a TGX category name. */
+const TGX_MEDIA_TYPES: Record<string, MediaType> = {
+  movies: "movie",
+  tv: "tv",
+  anime: "anime",
+  games: "game",
+  apps: "software",
+  music: "music",
+  books: "book",
+  docus: "documentary",
+  documentaries: "documentary",
+  xxx: "adult",
+};
+
+export function tgxMediaType(category: string | undefined): MediaType | undefined {
+  return category ? TGX_MEDIA_TYPES[category.toLowerCase()] : undefined;
 }
 
 /** Approximate an ISO timestamp from a relative age like "3 days". */
@@ -87,6 +107,8 @@ export function parseTgxListing(html: string): TgxRow[] {
 
     const sizeMatch = row.match(/([\d.]+)\s*([KMGT]B)\b/i);
     const ageMatch = row.match(/(\d+\s*(?:min|hour|day|week|month|year)s?)\s*<div/i);
+    // <a href="/get-posts/category:Games:time:10D"><small>Games</small></a>
+    const categoryMatch = row.match(/href="\/get-posts\/category:([A-Za-z]+)/i);
 
     rows.push({
       title,
@@ -96,6 +118,7 @@ export function parseTgxListing(html: string): TgxRow[] {
       sizeBytes: sizeMatch ? parseSize(`${sizeMatch[1]} ${sizeMatch[2]}`) : undefined,
       ageText: ageMatch?.[1],
       trusted: row.includes("trusted-uploader"),
+      category: categoryMatch?.[1],
     });
   }
 
@@ -148,20 +171,26 @@ export function parseTgxLegacyListing(html: string): TgxRow[] {
   return rows;
 }
 
-/** TGX browse categories per media type, for category-scoped top listings. */
-const TGX_CATEGORIES: Partial<Record<string, string>> = {
+/** TGX category names per media type, for category-scoped listings. */
+const TGX_CATEGORIES: Partial<Record<MediaType, string>> = {
   movie: "Movies",
   tv: "TV",
   anime: "Anime",
   game: "Games",
-  software: "Software",
+  software: "Apps",
+  music: "Music",
+  book: "Books",
+  documentary: "Docus",
+  adult: "XXX",
 };
 
 export class TorrentGalaxyAdapter implements SourceAdapter {
   readonly id = "torrentgalaxy";
   readonly name = "TorrentGalaxy";
   readonly reliability = 0.78;
-  readonly mediaTypes = ["movie", "tv", "anime", "game", "software", "documentary", "other"] as const;
+  readonly mediaTypes = [
+    "movie", "tv", "anime", "game", "software", "documentary", "music", "book", "adult", "other",
+  ] as const;
   readonly regions = ["global", "usa", "india", "japan", "korea", "europe"] as const;
   readonly supportsTop = true;
 
@@ -172,15 +201,15 @@ export class TorrentGalaxyAdapter implements SourceAdapter {
       DOMAINS,
       async (domain, signal) => {
         const query = encodeURIComponent(request.intent.query);
+        const category = request.intent.mediaType
+          ? TGX_CATEGORIES[request.intent.mediaType]
+          : undefined;
 
         let rows: TgxRow[] = [];
         if (request.top) {
           // Top listing: the period's posts ranked by seeders, scoped to the
           // category when the search asks for one.
           const period = request.top === "today" ? "1D" : "7D";
-          const category = request.intent.mediaType
-            ? TGX_CATEGORIES[request.intent.mediaType]
-            : undefined;
           const route = category
             ? `category:${category}:time:${period}`
             : `time:${period}`;
@@ -190,9 +219,9 @@ export class TorrentGalaxyAdapter implements SourceAdapter {
           );
           rows = parseTgxListing(listingHtml).sort((a, b) => b.seeders - a.seeders);
         } else {
-          // Current era: /get-posts/keywords:<query>
+          // Current era: /get-posts/keywords:<query>[:category:<name>]
           const listingHtml = await this.http.text(
-            `https://${domain}/get-posts/keywords:${query}`,
+            `https://${domain}/get-posts/keywords:${query}${category ? `:category:${category}` : ""}`,
             signal,
           );
           rows = parseTgxListing(listingHtml);
@@ -224,6 +253,7 @@ export class TorrentGalaxyAdapter implements SourceAdapter {
               leechers: row.leechers,
               uploadedAt: row.ageText ? approxIsoFromAge(row.ageText) : undefined,
               language: detectLanguageFromTitle(row.title),
+              mediaType: tgxMediaType(row.category),
               trusted: row.trusted,
             }),
           );

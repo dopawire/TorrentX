@@ -31,8 +31,9 @@ export interface TorrentXConfig {
   timeoutFloorMs?: number | undefined;
   /**
    * When a proxy is active and a request fails (sites often block Tor exit
-   * nodes), retry that request over a direct connection. Default true;
-   * disable for strict privacy. Download traffic is never affected.
+   * nodes), retry that request over a direct connection. Default true for
+   * user-configured proxies and false with the built-in Tor, so --tor stays
+   * strict unless explicitly relaxed. Download traffic is never affected.
    */
   proxyFallback?: boolean | undefined;
 }

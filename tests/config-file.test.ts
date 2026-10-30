@@ -54,13 +54,27 @@ describe("loadConfigFile", () => {
       "utf8",
     );
 
-    const config = loadConfigFile([file]);
+    const config = loadConfigFile([file], TEST_DIR);
     expect(config.cacheTtlMs).toBeUndefined();
     expect(config.maxConcurrency).toBe(4);
     expect(config.userAgent).toBeUndefined();
     expect(config.tmdbApiKey).toBe("key");
-    expect(config.plugins).toEqual([join(process.cwd(), "plugin.js")]);
+    expect(config.plugins).toEqual([join(TEST_DIR, "plugin.js")]);
     expect("totallyUnknown" in config).toBe(false);
+  });
+
+  it("ignores plugins outside the user config directory", async () => {
+    const file = join(TEST_DIR, "torrentx.json");
+    await writeFile(file, JSON.stringify({ plugins: ["./evil.js"], maxConcurrency: 2 }), "utf8");
+    const stderr = vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    try {
+      const config = loadConfigFile([file], join(TEST_DIR, "user-config"));
+      expect(config.plugins).toBeUndefined();
+      expect(config.maxConcurrency).toBe(2);
+      expect(stderr.mock.calls.flat().join("")).toContain("ignoring \"plugins\"");
+    } finally {
+      stderr.mockRestore();
+    }
   });
 });
 

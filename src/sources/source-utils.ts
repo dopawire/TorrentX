@@ -1,6 +1,6 @@
 import type { MediaType, Region, SearchResult, TopPeriod } from "../types/search.js";
 import { stableHash } from "../utils/hash.js";
-import { detectCodec, detectMediaType, detectQuality } from "../utils/text.js";
+import { detectCodec, detectMediaType, detectQuality, stripControlChars } from "../utils/text.js";
 
 /** Length of a top-listing period: "today" = last 24h, "week" = last 7 days. */
 export function periodMs(period: TopPeriod): number {
@@ -57,11 +57,11 @@ export function createResult(input: {
   const identity = input.magnetUri ?? input.torrentUrl ?? input.detailsUrl ?? input.title;
   return {
     id: stableHash(`${input.source}:${identity}`),
-    title: input.title.trim(),
+    title: stripControlChars(input.title).trim(),
     source: input.source,
     sourceReliability: input.sourceReliability,
-    seeders: input.seeders ?? 0,
-    leechers: input.leechers ?? 0,
+    seeders: peerCount(input.seeders),
+    leechers: peerCount(input.leechers),
     trusted: input.trusted ?? true,
     score: 0,
     ...optional("quality", input.quality ?? detectQuality(input.title)),
@@ -99,6 +99,14 @@ export interface MirrorRaceOptions<T = unknown> {
    * (empty results are not an error — they mean "no matches").
    */
   isEmpty?: (result: T) => boolean;
+  /**
+   * Once a mirror has answered with an empty result, how long to keep
+   * waiting for another mirror to return something before accepting "no
+   * matches". Without this bound a single blackholed mirror holds the race
+   * open until the source timeout, turning an ordinary zero-result search
+   * into a "timeout" failure that also counts against the source's health.
+   */
+  emptyGraceMs?: number;
 }
 
 class EmptyMirrorError<T> extends Error {
@@ -129,26 +137,42 @@ export async function raceMirrors<T>(
   else signal?.addEventListener("abort", relayAbort, { once: true });
 
   const staggerMs = options.staggerMs ?? 250;
+  const emptyGraceMs = options.emptyGraceMs ?? 2_000;
   const isEmpty = options.isEmpty;
+
+  let emptyTimer: ReturnType<typeof setTimeout> | undefined;
+  let acceptEmpty: ((value: T) => void) | undefined;
+  const emptyAccepted = new Promise<T>((resolve) => {
+    acceptEmpty = resolve;
+  });
+
   try {
-    return await Promise.any(
-      domains.map((domain, index) =>
-        waitFor(index * staggerMs, controller.signal).then(async () => {
-          const result = await request(domain, controller.signal);
-          if (isEmpty?.(result)) throw new EmptyMirrorError(result);
-          return result;
-        }),
+    return await Promise.race([
+      Promise.any(
+        domains.map((domain, index) =>
+          waitFor(index * staggerMs, controller.signal).then(async () => {
+            const result = await request(domain, controller.signal);
+            if (isEmpty?.(result)) {
+              emptyTimer ??= setTimeout(() => acceptEmpty?.(result), emptyGraceMs);
+              throw new EmptyMirrorError(result);
+            }
+            return result;
+          }),
+        ),
       ),
-    );
+      emptyAccepted,
+    ]);
   } catch (error) {
     if (signal?.aborted) throw createAbortError();
 
     const errors = error instanceof AggregateError ? error.errors : [error];
 
-    // All mirrors either failed or returned empty results: prefer the empty
-    // result over an error — "no matches found" is not a source failure.
+    // All mirrors either failed or returned empty results. If any mirror
+    // actually answered, that empty answer is the result: "no matches" is
+    // not a source failure, and dead mirrors (stale domains with no DNS
+    // record, for instance) must not turn it into one.
     const empty = errors.find((candidate) => candidate instanceof EmptyMirrorError);
-    if (empty && errors.every((candidate) => isAbortError(candidate) || candidate instanceof EmptyMirrorError)) {
+    if (empty) {
       return (empty as EmptyMirrorError<T>).value;
     }
 
@@ -160,6 +184,7 @@ export async function raceMirrors<T>(
       new Error("No source mirror responded")
     );
   } finally {
+    clearTimeout(emptyTimer);
     controller.abort();
     signal?.removeEventListener("abort", relayAbort);
   }
@@ -193,6 +218,21 @@ function isAbortError(error: unknown): boolean {
 
 function createAbortError(): DOMException {
   return new DOMException("The operation was aborted", "AbortError");
+}
+
+/** Largest swarm count taken at face value; real swarms are far smaller. */
+const MAX_PLAUSIBLE_PEERS = 10_000_000;
+
+/**
+ * Normalize a peer count from a source API. Some indexes leak unsigned
+ * 32-bit wraparound (e.g. 4294967317 for 21 after a negative decrement),
+ * which would otherwise rank junk above every healthy torrent.
+ */
+export function peerCount(value: number | undefined): number {
+  if (value === undefined || !Number.isFinite(value) || value < 0) return 0;
+  let count = Math.floor(value);
+  if (count > MAX_PLAUSIBLE_PEERS) count %= 2 ** 32;
+  return count > MAX_PLAUSIBLE_PEERS ? 0 : count;
 }
 
 function optional<K extends string, V>(

@@ -3,7 +3,8 @@ import { statfs } from "node:fs/promises";
 import { join } from "node:path";
 import { EventEmitter } from "node:events";
 import { stableHash } from "../utils/hash.js";
-import { sanitizeMagnet } from "../utils/magnet.js";
+import { infoHashFromMagnet, sanitizeMagnet } from "../utils/magnet.js";
+import { stripControlChars } from "../utils/text.js";
 import { actionableUri } from "./magnet-actions.js";
 import { DownloadEngine } from "./download-engine.js";
 import { DownloadStore } from "./download-store.js";
@@ -89,28 +90,28 @@ export class DownloadManager extends EventEmitter {
 
   async startDownloadFromUri(uri: string, customTitle?: string, source?: string): Promise<DownloadItem> {
     // Prevent duplicate downloads: check if this magnet/infohash is already in the list
-    const infoHashRegex = /xt=urn:btih:([a-fA-F0-9]{32,40})/i;
-    const match = uri.match(infoHashRegex);
-    const incomingHash = match ? match[1]!.toLowerCase() : null;
+    const incomingHash = infoHashFromMagnet(uri) ?? null;
 
     const existing = this.store.getAll().find((r) => {
-      if (incomingHash) {
-        const rMatch = r.magnetUri.match(infoHashRegex);
-        if (rMatch && rMatch[1]!.toLowerCase() === incomingHash) return true;
-      }
+      if (incomingHash && infoHashFromMagnet(r.magnetUri) === incomingHash) return true;
       return r.magnetUri === uri;
     });
 
     if (existing) {
-      throw new Error("This torrent is already in your downloads list!");
+      if (existing.status !== "error") {
+        throw new Error("This torrent is already in your downloads list!");
+      }
+      // A failed download (dead magnet, stall, disk full) is retried by
+      // adding it again; already-downloaded data on disk is kept and reused.
+      await this.cancelDownload(existing.id, false);
     }
 
     // Determine a title (fallback to file name or infoHash)
     let title = customTitle || "Loading torrent...";
     if (!customTitle) {
       if (uri.startsWith("magnet:?")) {
-        const nameMatch = uri.match(/dn=([^&]+)/);
-        title = nameMatch ? decodeURIComponent(nameMatch[1]!) : (incomingHash || "Magnet link");
+        const nameMatch = uri.match(/[?&]dn=([^&]+)/);
+        title = nameMatch ? safeDecode(nameMatch[1]!) : (incomingHash || "Magnet link");
       } else {
         // It's a file path
         title = uri.split(/[/\\]/).pop() || "Local torrent";
@@ -126,7 +127,7 @@ export class DownloadManager extends EventEmitter {
     const record: DownloadRecord = {
       id,
       magnetUri: uri,
-      title,
+      title: stripControlChars(title).trim() || "Magnet link",
       source: source || (uri.startsWith("magnet:") ? "magnet" : "file"),
       downloadPath: this.downloadDir,
       status: "queued",
@@ -350,14 +351,22 @@ export class DownloadManager extends EventEmitter {
           void this.store.saveTorrentFile(id, torrentFile);
         }
 
+        const record = this.store.getById(id);
+        const cleanName = name ? stripControlChars(name).trim() : "";
         void this.store.updateRecord(id, {
-          title: name || undefined,
+          ...(cleanName ? { title: cleanName } : {}),
           totalBytes,
-        } as Partial<DownloadRecord>);
+        });
 
-        // Now that the true size is known, verify the disk can hold it.
-        if (totalBytes > 0) {
-          void this.assertFreeSpace(totalBytes).catch((err: Error) => {
+        // Now that the true size is known, verify the disk can hold what is
+        // still missing. On resume most of the data may already be on disk,
+        // so checking the full size would fail large, nearly-done downloads.
+        // Completed/seeding torrents need no further space.
+        const alreadyHave = Math.min(record?.downloadedBytes ?? 0, totalBytes);
+        const remaining = totalBytes - alreadyHave;
+        const needsSpace = record?.status !== "seeding" && record?.status !== "completed";
+        if (needsSpace && remaining > 0) {
+          void this.assertFreeSpace(remaining).catch((err: Error) => {
             this.engine.cancel(id, false);
             void this.store.updateRecord(id, {
               status: "error",
@@ -377,5 +386,14 @@ export class DownloadManager extends EventEmitter {
       ...record,
       liveProgress: this.liveProgress.get(record.id),
     };
+  }
+}
+
+/** decodeURIComponent that tolerates malformed escapes in user/scraped input. */
+function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value.replace(/\+/g, " "));
+  } catch {
+    return value;
   }
 }

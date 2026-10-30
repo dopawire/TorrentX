@@ -1,6 +1,7 @@
 import type { SearchRequest, SourceAdapter } from "../types/search.js";
 import type { HttpClient } from "../services/http-client.js";
 import { parseSize } from "../utils/size.js";
+import { decodeEntities, detectLanguageFromTitle } from "../utils/text.js";
 import { TORRENTGALAXY_DOMAINS as DOMAINS } from "./mirrors.js";
 import { createResult, raceMirrors } from "./source-utils.js";
 
@@ -222,7 +223,7 @@ export class TorrentGalaxyAdapter implements SourceAdapter {
               seeders: row.seeders,
               leechers: row.leechers,
               uploadedAt: row.ageText ? approxIsoFromAge(row.ageText) : undefined,
-              language: detectLanguage(row.title),
+              language: detectLanguageFromTitle(row.title),
               trusted: row.trusted,
             }),
           );
@@ -256,24 +257,4 @@ export class TorrentGalaxyAdapter implements SourceAdapter {
       );
     }
   }
-}
-
-function decodeEntities(text: string): string {
-  return text
-    .replace(/&amp;/g, "&")
-    .replace(/&#39;/g, "'")
-    .replace(/&quot;/g, '"');
-}
-
-function detectLanguage(title: string): string | undefined {
-  const lower = title.toLowerCase();
-  if (/\bhindi\b/.test(lower)) return "hindi";
-  if (/\btamil\b/.test(lower)) return "tamil";
-  if (/\btelugu\b/.test(lower)) return "telugu";
-  if (/\bmalayalam\b/.test(lower)) return "malayalam";
-  if (/\bkannada\b/.test(lower)) return "kannada";
-  if (/\bbengali\b/.test(lower)) return "bengali";
-  if (/\bpunjabi\b/.test(lower)) return "punjabi";
-  if (/\benglish\b/.test(lower) || /\beng\b/.test(lower)) return "english";
-  return undefined;
 }

@@ -21,6 +21,12 @@ export function describeSourceFailure(
     if (error.status === 402) {
       return { kind: "payment_required", message: "Payment required (HTTP 402)" };
     }
+    if (error.botCheck) {
+      return {
+        kind: "blocked",
+        message: `Bot check (HTTP ${error.status}) — the site requires a browser`,
+      };
+    }
     if (error.status === 401 || error.status === 403 || error.status === 451) {
       return { kind: "blocked", message: `Blocked (HTTP ${error.status})` };
     }

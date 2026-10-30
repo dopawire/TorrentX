@@ -15,8 +15,8 @@ function isSourceAdapter(value: unknown): value is SourceAdapter {
 }
 
 /**
- * Load plugin source adapters from user-supplied module paths (config file
- * `plugins` entries or TORRENTX_PLUGINS). Each module may export:
+ * Load plugin source adapters from user-supplied module paths (the `plugins`
+ * entries of the user-level config file). Each module may export:
  *   - a SourceAdapter instance as `default` or `source`, or
  *   - a factory `createSource(http)` / `default(http)` returning one.
  *

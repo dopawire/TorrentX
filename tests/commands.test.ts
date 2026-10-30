@@ -140,6 +140,6 @@ describe("executeStoredAction", () => {
     await new ResultStore().save([makeResult({ magnetUri: undefined, torrentUrl: undefined })]);
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     await executeStoredAction("magnet", "1");
-    expect(log.mock.calls.flat().join("\n")).toContain("details page only");
+    expect(log.mock.calls.flat().join("\n")).toContain("provides no link");
   });
 });

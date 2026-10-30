@@ -73,7 +73,8 @@ function resolveTor(fileTor: boolean | undefined): Partial<TorrentXConfig> {
 
 /**
  * TORRENTX_PROXY_FALLBACK=0 disables the automatic direct retry for requests
- * that fail through a proxy. Default: enabled.
+ * that fail through a proxy. Default: enabled for user proxies, disabled
+ * with the built-in Tor (see cli.ts).
  */
 function resolveProxyFallback(
   fileValue: boolean | undefined,

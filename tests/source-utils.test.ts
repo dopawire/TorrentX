@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { raceMirrors, safeIsoDate } from "../src/sources/source-utils.js";
+import { createResult, peerCount, raceMirrors, safeIsoDate } from "../src/sources/source-utils.js";
 
 describe("raceMirrors", () => {
   it("starts a fallback before a stalled primary request can exhaust the source timeout", async () => {
@@ -56,6 +56,51 @@ describe("raceMirrors", () => {
     expect(result).toEqual([]);
   });
 
+  it("accepts an empty result after the grace period when another mirror hangs", async () => {
+    const startedAt = Date.now();
+    const result = await raceMirrors(
+      ["blank", "blackholed"],
+      async (domain, signal) => {
+        if (domain === "blank") return [] as string[];
+        return waitUntilAborted(signal);
+      },
+      undefined,
+      { staggerMs: 1, emptyGraceMs: 30, isEmpty: (r) => r.length === 0 },
+    );
+
+    expect(result).toEqual([]);
+    expect(Date.now() - startedAt).toBeLessThan(1_000);
+  });
+
+  it("prefers a non-empty mirror that answers within the grace period", async () => {
+    const result = await raceMirrors(
+      ["blank", "slow"],
+      async (domain) => {
+        if (domain === "blank") return [] as string[];
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        return ["late", "hit"];
+      },
+      undefined,
+      { staggerMs: 1, emptyGraceMs: 500, isEmpty: (r) => r.length === 0 },
+    );
+
+    expect(result).toEqual(["late", "hit"]);
+  });
+
+  it("returns a real empty answer even when other mirrors are dead", async () => {
+    const result = await raceMirrors(
+      ["dead-domain", "healthy-but-no-matches"],
+      async (domain) => {
+        if (domain === "dead-domain") throw new TypeError("fetch failed");
+        return [] as string[];
+      },
+      undefined,
+      { staggerMs: 1, isEmpty: (r) => r.length === 0 },
+    );
+
+    expect(result).toEqual([]);
+  });
+
   it("still surfaces real errors when a mirror fails outright", async () => {
     await expect(
       raceMirrors(
@@ -91,5 +136,27 @@ describe("safeIsoDate", () => {
     expect(safeIsoDate("")).toBeUndefined();
     expect(safeIsoDate(undefined)).toBeUndefined();
     expect(safeIsoDate("0000-00-00")).toBeUndefined();
+  });
+});
+
+describe("createResult", () => {
+  it("strips terminal control sequences from scraped titles", () => {
+    const result = createResult({
+      title: "Movie\u001b[2J\u001b]0;pwned\u0007 1080p",
+      source: "test",
+      sourceReliability: 0.5,
+    });
+    expect(result.title).toBe("Movie [2J ]0;pwned 1080p");
+  });
+});
+
+describe("peerCount", () => {
+  it("undoes 32-bit wraparound and rejects impossible counts", () => {
+    expect(peerCount(4294967317)).toBe(21);
+    expect(peerCount(4294967231)).toBe(0); // wraps to a negative count
+    expect(peerCount(1495)).toBe(1495);
+    expect(peerCount(-3)).toBe(0);
+    expect(peerCount(Number.NaN)).toBe(0);
+    expect(peerCount(undefined)).toBe(0);
   });
 });

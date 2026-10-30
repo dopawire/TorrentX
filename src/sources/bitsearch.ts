@@ -1,10 +1,11 @@
-import type { SearchRequest, SourceAdapter } from "../types/search.js";
+import type { SearchRequest, SearchResult, SourceAdapter } from "../types/search.js";
 import type { HttpClient } from "../services/http-client.js";
 import { buildMagnet } from "../utils/magnet.js";
 import { BITSEARCH_DOMAINS as DOMAINS } from "./mirrors.js";
-import { createResult, safeIsoDate } from "./source-utils.js";
+import { createResult, raceMirrors, safeIsoDate } from "./source-utils.js";
 
-interface BitsearchResponse {
+/** Bitsearch api/v1/search payload (also served for the former SolidTorrents). */
+export interface BitsearchResponse {
   success?: boolean;
   results?: Array<{
     id: string;
@@ -32,7 +33,7 @@ export function mapBitsearchResults(
   payload: BitsearchResponse,
   domain: string,
   limit: number,
-): ReturnType<typeof createResult>[] {
+): SearchResult[] {
   return (payload.results ?? []).slice(0, limit * 2).map((item) =>
     createResult({
       title: item.title,
@@ -50,6 +51,10 @@ export function mapBitsearchResults(
   );
 }
 
+/**
+ * Bitsearch adapter. SolidTorrents was folded into Bitsearch (its domains
+ * now redirect here), so this one adapter covers both indexes.
+ */
 export class BitsearchAdapter implements SourceAdapter {
   readonly id = BITSEARCH_ID;
   readonly name = "Bitsearch";
@@ -61,22 +66,17 @@ export class BitsearchAdapter implements SourceAdapter {
 
   async search(request: SearchRequest) {
     if (request.top) return [];
-    let lastError: Error | undefined;
-
-    for (const domain of DOMAINS) {
-      try {
+    return raceMirrors(
+      DOMAINS,
+      async (domain, signal) => {
         const url = new URL(`https://${domain}/api/v1/search`);
         url.searchParams.set("q", request.intent.query);
 
-        const payload = await this.http.json<BitsearchResponse>(url.toString(), request.signal);
-        if (!payload.results?.length) return [];
-
+        const payload = await this.http.json<BitsearchResponse>(url.toString(), signal);
         return mapBitsearchResults(payload, domain, request.limit);
-      } catch (err) {
-        lastError = err as Error;
-      }
-    }
-
-    throw lastError || new Error("All Bitsearch mirrors offline");
+      },
+      request.signal,
+      { isEmpty: (results) => results.length === 0 },
+    );
   }
 }

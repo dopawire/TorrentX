@@ -241,11 +241,11 @@ export function TorrentXApp({ engine, options, downloadManager, initialTorrentOr
     setActionBusy(true);
     try {
       if (action === "copy") {
-        await actions.copy(selected);
-        setNotice("Magnet copied to clipboard.");
+        const uri = await actions.copy(selected);
+        setNotice(uri.startsWith("magnet:") ? "Magnet copied to clipboard." : "Link copied to clipboard.");
       } else if (action === "open") {
-        await actions.open(selected);
-        setNotice("Opened in your torrent client.");
+        const uri = await actions.open(selected);
+        setNotice(uri.startsWith("magnet:") ? "Opened in your torrent client." : "Opened in your browser.");
       } else {
         const destination = await actions.export(selected);
         setNotice(`Exported to ${destination}`);
@@ -779,7 +779,7 @@ function HelpView({ columns, rows, notice }: { columns: number; rows: number; no
           <Text><Text color={TUI_COLOR.accent}>t</Text><Text dimColor>  Top 100: switch this week / last 24h</Text></Text>
           <Text><Text color={TUI_COLOR.accent}>s</Text><Text dimColor>  Cycle rank, seeds, size, newest</Text></Text>
           <Text><Text color={TUI_COLOR.accent}>r</Text><Text dimColor>  Refresh current search</Text></Text>
-          <Text><Text color={TUI_COLOR.accent}>d or o</Text><Text dimColor>  Open in system torrent client</Text></Text>
+          <Text><Text color={TUI_COLOR.accent}>d or o</Text><Text dimColor>  Open in torrent client (or browser for pages)</Text></Text>
           <Text><Text color={TUI_COLOR.accent}>D (shift)</Text><Text dimColor>  Download with built-in client</Text></Text>
           <Text><Text color={TUI_COLOR.accent}>y or m</Text><Text dimColor>  Copy magnet</Text></Text>
           <Text><Text color={TUI_COLOR.accent}>e</Text><Text dimColor>  Export magnet</Text></Text>

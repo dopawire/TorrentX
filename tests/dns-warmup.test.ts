@@ -23,3 +23,16 @@ describe("dns-warmup", () => {
     await new Promise((r) => setTimeout(r, 10));
   });
 });
+
+describe("shouldWarmupDns", () => {
+  it("only warms the system resolver when sources actually use it", async () => {
+    const { shouldWarmupDns } = await import("../src/services/dns-warmup.js");
+    expect(shouldWarmupDns({})).toBe(true);
+    expect(shouldWarmupDns({ dnsResolver: "system" })).toBe(true);
+    expect(shouldWarmupDns({ tor: true })).toBe(false);
+    expect(shouldWarmupDns({ socks5Proxy: "socks5h://127.0.0.1:9050" })).toBe(false);
+    expect(shouldWarmupDns({ httpProxy: "http://127.0.0.1:8080" })).toBe(false);
+    expect(shouldWarmupDns({ sourceProxyUrl: "https://proxy.example/?url={url}" })).toBe(false);
+    expect(shouldWarmupDns({ dnsResolver: "doh" })).toBe(false);
+  });
+});

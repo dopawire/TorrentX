@@ -1,6 +1,6 @@
 import type { TorrentXConfig } from "../types/config.js";
 import type { MediaMetadata, SearchIntent, SearchResult } from "../types/search.js";
-import { normalizeTitle } from "../utils/text.js";
+import { normalizeTitle, stripControlChars } from "../utils/text.js";
 import { HttpClient } from "./http-client.js";
 
 interface TmdbSearchResponse {
@@ -223,15 +223,20 @@ function compactMetadata(input: {
   runtimeMinutes?: number | undefined;
   overview?: string | undefined;
 }): MediaMetadata {
+  // Provider text is printed to the terminal: drop control characters.
+  const clean = (value: string | undefined) => (value ? stripControlChars(value).trim() : undefined);
+  const language = clean(input.language);
+  const country = clean(input.country);
+  const overview = clean(input.overview);
   return {
-    title: input.title,
+    title: clean(input.title) ?? "",
     ...(input.year ? { year: input.year } : {}),
     ...(input.rating !== undefined ? { rating: input.rating } : {}),
     ...(input.posterUrl ? { posterUrl: input.posterUrl } : {}),
-    ...(input.language ? { language: input.language } : {}),
-    ...(input.country ? { country: input.country } : {}),
-    ...(input.genres?.length ? { genres: input.genres } : {}),
+    ...(language ? { language } : {}),
+    ...(country ? { country } : {}),
+    ...(input.genres?.length ? { genres: input.genres.map((genre) => stripControlChars(genre)) } : {}),
     ...(input.runtimeMinutes ? { runtimeMinutes: input.runtimeMinutes } : {}),
-    ...(input.overview ? { overview: input.overview } : {}),
+    ...(overview ? { overview } : {}),
   };
 }

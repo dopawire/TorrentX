@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { Leet1337xAdapter } from "../src/sources/1337x.js";
 import { BitsearchAdapter } from "../src/sources/bitsearch.js";
 import { EztvAdapter } from "../src/sources/eztv.js";
 import { FitGirlAdapter } from "../src/sources/fitgirl.js";
@@ -10,7 +9,6 @@ import { FmhyAdapter } from "../src/sources/fmhy.js";
 import { LimeTorrentsAdapter } from "../src/sources/limetorrents.js";
 import { NyaaAdapter } from "../src/sources/nyaa.js";
 import { PirateBayAdapter } from "../src/sources/piratebay.js";
-import { SolidTorrentsAdapter } from "../src/sources/solidtorrents.js";
 import { SubsPleaseAdapter } from "../src/sources/subsplease.js";
 import { TorrentGalaxyAdapter } from "../src/sources/torrentgalaxy.js";
 import { YtsAdapter } from "../src/sources/yts.js";
@@ -182,18 +180,6 @@ const LIME_HTML = `<html><body><table>
   </tr>
 </table></body></html>`;
 
-const LEET_HTML = `<html><body><table><tbody>
-  <tr>
-    <td class="coll-1"><a href="/sub/1/movies/"><i class="icon"></i></a> <a href="/torrent/111/test-item/">Test Item</a></td>
-    <td class="coll-2">64</td>
-    <td class="coll-3">5</td>
-    <td class="coll-4">1.4 GB</td>
-    <td class="coll-date">Jan. 15th '24</td>
-  </tr>
-</tbody></table></body></html>`;
-
-const LEET_DETAIL = `<html><body><a href="magnet:?xt=urn:btih:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa&amp;dn=Test">m</a></body></html>`;
-
 const FMHY_MD = [
   "## Streaming",
   "* ⭐ **[Zqwx Unique Probe Site](https://zqwx.example/)** - Testing / [Info](https://info.test)",
@@ -275,15 +261,10 @@ describe("adapter search() with stubbed HTTP", () => {
     expect(await adapter.search(request({ top: "today", query: "" }))).toEqual([]);
   });
 
-  it("solidtorrents and bitsearch map api results and skip top", async () => {
-    const solid = new SolidTorrentsAdapter(stubHttp({ json: () => SOLID_PAYLOAD }));
-    const found = await solid.search(request());
-    expect(found[0]).toMatchObject({ title: "Test Linux ISO", seeders: 9 });
-    expect(await solid.search(request({ top: "week", query: "" }))).toEqual([]);
-
+  it("bitsearch maps api results and skips top", async () => {
     const bitsearch = new BitsearchAdapter(stubHttp({ json: () => SOLID_PAYLOAD }));
     const found2 = await bitsearch.search(request());
-    expect(found2[0]?.title).toContain("Test Linux ISO");
+    expect(found2[0]).toMatchObject({ title: "Test Linux ISO", seeders: 9 });
     expect(await bitsearch.search(request({ top: "week", query: "" }))).toEqual([]);
   });
 
@@ -291,16 +272,6 @@ describe("adapter search() with stubbed HTTP", () => {
     const adapter = new LimeTorrentsAdapter(stubHttp({ text: () => LIME_HTML }));
     const found = await adapter.search(request());
     expect(found[0]).toMatchObject({ title: "Test Item", seeders: 321 });
-    expect(await adapter.search(request({ top: "week", query: "" }))).toEqual([]);
-  });
-
-  it("1337x fetches detail pages for magnets and skips top", async () => {
-    const adapter = new Leet1337xAdapter(
-      stubHttp({ text: (url) => (url.includes("/torrent/") ? LEET_DETAIL : LEET_HTML) }),
-    );
-    const found = await adapter.search(request());
-    expect(found[0]).toMatchObject({ title: "Test Item", seeders: 64 });
-    expect(found[0]?.magnetUri).toContain("aaaaaaaa");
     expect(await adapter.search(request({ top: "week", query: "" }))).toEqual([]);
   });
 
@@ -363,7 +334,6 @@ describe("adapter search() with stubbed HTTP", () => {
     expect(supports(new TorrentGalaxyAdapter(stubHttp({})))).toBe(true);
     expect(supports(new PirateBayAdapter(stubHttp({})))).toBe(false);
     expect(supports(new FmhyAdapter(stubHttp({})))).toBe(false);
-    expect(supports(new Leet1337xAdapter(stubHttp({})))).toBe(false);
     expect(supports(new LimeTorrentsAdapter(stubHttp({})))).toBe(false);
   });
 });

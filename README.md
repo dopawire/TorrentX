@@ -81,8 +81,7 @@ Every environment variable above has a config-file equivalent. TorrentX looks fo
   "downloadDir": "D:\\Downloads",
   "tmdbApiKey": "your-tmdb-key",
   "dns": "doh",
-  "tor": true,
-  "plugins": ["./my-tracker-source.js"]
+  "tor": true
 }
 ```
 
@@ -92,17 +91,26 @@ Precedence: built-in defaults < config file < environment variables. Unknown key
 
 ### Source plugins
 
-The `plugins` array in the config file adds your own search sources. Each module must export a `SourceAdapter` (as `default`, `source`, or a `createSource()` factory) with `id`, `name`, `reliability`, `mediaTypes`, and a `search()` method — see `src/types/search.ts` for the interface.
+The `plugins` array adds your own search sources. Plugins are ordinary code, so they are only loaded from your user config (`~/.config/torrentx/config.json`); a `plugins` entry in a `torrentx.json` in the current directory is ignored with a warning. Relative paths are resolved against the config file's folder:
+
+```json
+{ "plugins": ["./my-tracker-source.js"] }
+```
+
+Each module must export a `SourceAdapter` (as `default`, `source`, or a `createSource()` factory) with `id`, `name`, `reliability`, `mediaTypes`, and a `search()` method — see `src/types/search.ts` for the interface.
 
 ---
 
 ## What it searches
 
-A short, hand-picked list of trusted indices:
-*   **Games:** Sourced from **FitGirl Repacks** alone, ensuring a long, trusted track record for executable content.
-*   **Anime:** Sourced from **Nyaa**, the premier anime index.
-*   **Movies, TV, and General:** Sourced from **YTS**, **EZTV**, and **The Pirate Bay**.
+A short, hand-picked list of indices:
+*   **Games:** Sourced from **FitGirl Repacks**, with a long, trusted track record for executable content.
+*   **Anime:** Sourced from **Nyaa** and **SubsPlease**.
+*   **Movies and TV:** Sourced from **YTS** (movies) and **EZTV** (TV).
+*   **General:** **The Pirate Bay**, **TorrentGalaxy**, **LimeTorrents**, and **Bitsearch** (which now also serves the former SolidTorrents index).
 *   **Fallback Pages:** Sourced from **FreeMediaHeckYeah (FMHY)** to get working streaming or DDL links when torrents are dead.
+
+Run `torrentx sources` for the exact list.
 
 If a source is down, the search carries on without it, and TorrentX tells you in the footer which index is offline.
 
@@ -152,7 +160,7 @@ In many regions, ISPs block torrent search sites at the network level. TorrentX 
 
 #### DNS hijacking (most common) — enable DNS-over-HTTPS
 
-Some ISPs poison DNS answers so that blocked domains all resolve to one sinkhole address. A quick tell: `nslookup 1337x.to` returns the same odd IP as other blocked sites. TorrentX can resolve domains over HTTPS instead, which the ISP cannot tamper with:
+Some ISPs poison DNS answers so that blocked domains all resolve to one sinkhole address. A quick tell: `nslookup thepiratebay.org` returns the same odd IP as other blocked sites. TorrentX can resolve domains over HTTPS instead, which the ISP cannot tamper with:
 
 ```bash
 # Linux / macOS
@@ -269,7 +277,9 @@ Your files stay on your disk, and nothing routes through a central server. What 
 | **DNS lookups** (`dns: "doh"`) | Nothing — names are resolved over HTTPS, so a hijacking ISP resolver never sees them. |
 | **Torrent downloads** | Visible as peer-to-peer traffic. Tracker announces and DHT queries carry the infohash, which identifies the content. Downloads are intentionally **not** routed through Tor (BitTorrent over Tor degrades the whole network); use a device-wide VPN if your ISP must not see what you download. |
 
-One caveat on Tor mode: sites that block Tor exit nodes are automatically retried over a **direct** connection so they still work. For those sites only, your provider sees that a connection happened (destination and name, not the response contents). Set `TORRENTX_PROXY_FALLBACK=0` to disable this — everything then stays strictly inside Tor, and blocked sites simply fail. `torrentx doctor` prints which mode you are in (`tor` vs `tor(strict)`).
+Tor mode is strict by default: every source request stays inside Tor, and sites that block Tor exit nodes simply fail. If you would rather have those sites work, set `TORRENTX_PROXY_FALLBACK=1` (or `"proxyFallback": true`) and failed requests are retried over a **direct** connection — for those sites only, your provider then sees that a connection happened (destination and name, not the response contents). `torrentx doctor` prints which mode you are in (`tor(strict)` vs `tor(direct-fallback)`). Your own SOCKS/HTTP proxies keep the direct retry on by default; set `TORRENTX_PROXY_FALLBACK=0` to turn it off.
+
+TorrentX also skips its startup DNS warm-up whenever Tor, a proxy, or DoH is configured, so source domains are never sent to your system resolver in those modes.
 
 Also note that providers can always tell *that* Tor is in use, even if not what for; configure Tor bridges if that matters in your threat model.
 

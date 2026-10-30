@@ -1,5 +1,6 @@
 import type { SearchRequest, SourceAdapter } from "../types/search.js";
 import type { HttpClient } from "../services/http-client.js";
+import { decodeEntities } from "../utils/text.js";
 import { FITGIRL_HOST } from "./mirrors.js";
 import { createResult, safeIsoDate, topSlice } from "./source-utils.js";
 
@@ -53,7 +54,7 @@ export function parseFitgirlResults(xml: string, limit: number): ReturnType<type
 
     if (!titleMatch || !linkMatch) continue;
 
-    const title = decodeHtml(titleMatch[1]!);
+    const title = decodeEntities(titleMatch[1]!);
     const detailsUrl = linkMatch[1]!.trim();
     const pubDate = pubDateMatch?.[1];
 
@@ -63,7 +64,7 @@ export function parseFitgirlResults(xml: string, limit: number): ReturnType<type
       item.match(/href="([^"]*magnet:\?xt=urn:btih:[^"]*)"/i) ||
       item.match(/(magnet:\?xt=urn:btih:[^\s<>"]+)/i);
 
-    const magnetUri = magnetMatch ? decodeHtml(magnetMatch[1]!) : undefined;
+    const magnetUri = magnetMatch ? decodeEntities(magnetMatch[1]!) : undefined;
 
     // Filter out digest updates which do not contain game magnet links
     if (title.toLowerCase().includes("updates digest") && !magnetUri) {
@@ -85,15 +86,4 @@ export function parseFitgirlResults(xml: string, limit: number): ReturnType<type
   }
 
   return results.slice(0, limit);
-}
-
-function decodeHtml(html: string): string {
-  return html
-    .replace(/&amp;/g, "&")
-    .replace(/&#038;/g, "&")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&#8211;/g, "–")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">");
 }

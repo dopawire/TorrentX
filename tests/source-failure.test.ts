@@ -14,6 +14,15 @@ describe("source failure reporting", () => {
     expect(failure).toEqual({ kind: "blocked", message: "Blocked (HTTP 403)" });
   });
 
+  it("names bot-check pages instead of calling the site blocked or down", () => {
+    const failure = describeSourceFailure(
+      new HttpError("HTTP 403 (bot check)", 403, "https://example.test", undefined, true),
+    );
+
+    expect(failure.kind).toBe("blocked");
+    expect(failure.message).toMatch(/Bot check \(HTTP 403\)/);
+  });
+
   it("classifies paywalled sources as payment_required", () => {
     const failure = describeSourceFailure(
       new HttpError("HTTP 402", 402, "https://example.test"),

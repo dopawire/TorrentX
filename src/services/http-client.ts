@@ -10,6 +10,8 @@ export class HttpError extends Error {
     readonly url: string,
     /** Present on 429 responses that carried a Retry-After header (capped). */
     readonly retryAfterMs?: number,
+    /** The site answered with a bot-check page (e.g. Cloudflare "Just a moment..."). */
+    readonly botCheck = false,
   ) {
     super(message);
     this.name = "HttpError";
@@ -71,7 +73,9 @@ function ensurePooledDispatcher(config: TorrentXConfig): void {
     pooledDispatcher = new Agent({
       connect: buildSocks5Connector(
         config.socks5Proxy,
-        connectTimeoutMs(config.sourceTimeoutMs),
+        // The SOCKS handshake includes the proxy's own connection to the
+        // destination (a whole Tor circuit), so honour the timeout floor.
+        connectTimeoutMs(Math.max(config.sourceTimeoutMs, config.timeoutFloorMs ?? 0)),
       ) as never,
     });
   } else if (config.httpProxy) {
@@ -127,7 +131,7 @@ export class HttpClient {
    * When a proxy is active and the request still fails, one final attempt is
    * made over a direct connection (sites frequently block Tor exit nodes
    * while serving ordinary connections). Disable with
-   * TORRENTX_PROXY_FALLBACK=0 for strict privacy.
+   * TORRENTX_PROXY_FALLBACK=0 for strict privacy (the default with --tor).
    */
   private async requestWithRetry(
     url: string,
@@ -206,7 +210,16 @@ export class HttpClient {
           retryAfter !== undefined ? Math.min(retryAfter * 1_000, 2_000) : undefined,
         );
       }
-      throw new HttpError(`HTTP ${response.status}`, response.status, url);
+      // Cloudflare marks interactive challenges with cf-mitigated: a site
+      // that only serves those to scripted clients is not "down".
+      const botCheck = response.headers.get("cf-mitigated") === "challenge";
+      throw new HttpError(
+        `HTTP ${response.status}${botCheck ? " (bot check)" : ""}`,
+        response.status,
+        url,
+        undefined,
+        botCheck,
+      );
     }
     return response;
   }

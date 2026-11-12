@@ -94,7 +94,13 @@ export function createDohLookup(customUrl?: string) {
           : answer.data;
         addresses.push({ address, family: type === 1 ? 4 : 6 });
         if (answer.TTL) {
-          ttlMs = Math.min(ttlMs ?? POSITIVE_TTL_MS, Math.max(30_000, answer.TTL * 1000));
+          // Providers may hand out day-long TTLs; cap them so a changed
+          // address is picked up within the session.
+          ttlMs = Math.min(
+            ttlMs ?? POSITIVE_TTL_MS,
+            POSITIVE_TTL_MS,
+            Math.max(30_000, answer.TTL * 1000),
+          );
         }
       }
     }

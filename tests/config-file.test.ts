@@ -63,6 +63,19 @@ describe("loadConfigFile", () => {
     expect("totallyUnknown" in config).toBe(false);
   });
 
+  it("accepts download dirs and timeout floors from the file", async () => {
+    const file = join(TEST_DIR, "torrentx.json");
+    await writeFile(
+      file,
+      JSON.stringify({ downloadDir: "D:\\Downloads", timeoutFloorMs: 30_000 }),
+      "utf8",
+    );
+
+    const config = loadConfigFile([file]);
+    expect(config.downloadDir).toBe("D:\\Downloads");
+    expect(config.timeoutFloorMs).toBe(30_000);
+  });
+
   it("ignores plugins outside the user config directory", async () => {
     const file = join(TEST_DIR, "torrentx.json");
     await writeFile(file, JSON.stringify({ plugins: ["./evil.js"], maxConcurrency: 2 }), "utf8");
@@ -81,6 +94,7 @@ describe("loadConfigFile", () => {
 describe("createConfig precedence", () => {
   afterEach(() => {
     delete process.env.TMDB_API_KEY;
+    delete process.env.TORRENTX_TIMEOUT_FLOOR_MS;
   });
 
   it("lets env vars override config file values", async () => {
@@ -95,6 +109,18 @@ describe("createConfig precedence", () => {
     delete process.env.TMDB_API_KEY;
     expect(createConfig().tmdbApiKey).toBe("file-key");
     expect(createConfig({ tmdbApiKey: "override-key" }).tmdbApiKey).toBe("override-key");
+  });
+
+  it("lets TORRENTX_TIMEOUT_FLOOR_MS override the file", async () => {
+    const file = join(TEST_DIR, "torrentx.json");
+    await writeFile(file, JSON.stringify({ timeoutFloorMs: 5_000 }), "utf8");
+    vi.spyOn(process, "cwd").mockReturnValue(TEST_DIR);
+
+    process.env.TORRENTX_TIMEOUT_FLOOR_MS = "9000";
+    expect(createConfig().timeoutFloorMs).toBe(9_000);
+
+    process.env.TORRENTX_TIMEOUT_FLOOR_MS = "nope";
+    expect(createConfig().timeoutFloorMs).toBe(5_000);
   });
 });
 

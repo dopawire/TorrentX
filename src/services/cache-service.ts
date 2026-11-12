@@ -6,7 +6,7 @@ import { stableHash } from "../utils/hash.js";
 /** Disk entries untouched this long are removed (longer than any TTL in use). */
 const DISK_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 /** Cache entry files are named by stableHash(): 16 hex characters. */
-const ENTRY_FILE = /^[0-9a-f]{16}\.json(?:\.\d+\.tmp)?$/;
+const ENTRY_FILE = /^[0-9a-f]{16}\.json(?:\.[\w.-]+\.tmp)?$/;
 
 interface CacheEntry<T> {
   createdAt: number;
@@ -23,6 +23,8 @@ export class CacheService {
   private readonly memory = new Map<string, CacheEntry<unknown>>();
   private readonly maxMemoryEntries: number;
   private pruned = false;
+  /** Serialise renames: Windows EPERMs when two target the same file. */
+  private writeQueue: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly ttlMs: number,
@@ -75,16 +77,19 @@ export class CacheService {
     // Write to memory immediately
     this.memorySet(hash, entry);
 
-    // Persist to disk asynchronously
-    await mkdir(this.directory, { recursive: true });
-    if (!this.pruned) {
-      this.pruned = true;
-      void this.prune().catch(() => undefined);
-    }
-    const file = this.fileFor(hash);
-    const temporary = `${file}.${process.pid}.tmp`;
-    await writeFile(temporary, JSON.stringify(entry), "utf8");
-    await rename(temporary, file);
+    const work = this.writeQueue.then(async () => {
+      await mkdir(this.directory, { recursive: true });
+      if (!this.pruned) {
+        this.pruned = true;
+        void this.prune().catch(() => undefined);
+      }
+      const file = this.fileFor(hash);
+      const temporary = `${file}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
+      await writeFile(temporary, JSON.stringify(entry), "utf8");
+      await rename(temporary, file);
+    });
+    this.writeQueue = work.catch(() => undefined);
+    await work;
   }
 
   /**

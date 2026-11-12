@@ -198,9 +198,23 @@ export function TorrentXApp({ engine, options, downloadManager, initialTorrentOr
           clearTimeout(timer);
           timer = null;
         }
-        if (!controller.signal.aborted) {
-          setNotice(error instanceof Error ? error.message : String(error));
-        }
+        if (controller.signal.aborted) return;
+        setNotice(error instanceof Error ? error.message : String(error));
+        // A failed search must not leave the spinner running forever.
+        setProgress({
+          query,
+          intent: {
+            query,
+            preferredSources: [],
+            terms: query.split(/\s+/).filter(Boolean),
+          },
+          results: [],
+          sources: [],
+          durationMs: 0,
+          cached: false,
+          completedSources: 0,
+          totalSources: 0,
+        });
       });
 
     return () => {
@@ -751,7 +765,7 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 const Footer = memo(function Footer({ compact, screen, busy, hasDownloads }: { compact: boolean; screen: Screen; busy: boolean; hasDownloads: boolean }) {
   const dlHint = hasDownloads ? "   w downloads   D download" : "";
   const hints = screen === "downloads"
-    ? "esc back   p pause/resume   x cancel   t seed toggle   ? keys"
+    ? "esc back   p pause/resume/retry   x cancel   t seed toggle   ? keys"
     : screen === "detail"
       ? `esc back   d open   y copy   e export${dlHint}   ? keys`
       : compact

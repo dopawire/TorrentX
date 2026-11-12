@@ -53,13 +53,10 @@ export class DownloadManager extends EventEmitter {
   /** Call once on startup to resume interrupted downloads. */
   async restore(): Promise<void> {
     const records = await this.store.load();
-    const active = records.filter(
-      (r) =>
-        r.status === "downloading" || r.status === "seeding",
-    );
-    const queued = records.filter((r) => r.status === "queued");
 
-    for (const record of active) {
+    // Seeding torrents are already complete; they do not consume download
+    // slots, so bring them all back.
+    for (const record of records.filter((r) => r.status === "seeding")) {
       try {
         await this.resumeInEngine(record);
       } catch {
@@ -70,11 +67,21 @@ export class DownloadManager extends EventEmitter {
       }
     }
 
-    // Respect the parallel-download cap for anything that was queued.
-    for (const record of queued) {
-      if (this.activeCount() < this.maxParallel) {
+    // Interrupted downloads respect the parallel cap; the rest wait queued.
+    // Count resumed slots locally: every stored record still says
+    // "downloading", so activeCount() cannot distinguish resumed ones yet.
+    const pending = records.filter(
+      (r) => r.status === "downloading" || r.status === "queued",
+    );
+    let slots = 0;
+    for (const record of pending) {
+      if (slots < this.maxParallel) {
+        slots += 1;
         this.startEngineFor(record);
       } else {
+        if (record.status !== "queued") {
+          await this.store.updateRecord(record.id, { status: "queued" });
+        }
         this.queue.push(record.id);
       }
     }
@@ -167,7 +174,17 @@ export class DownloadManager extends EventEmitter {
       this.engine.resume(id);
       await this.store.updateRecord(id, { status: "downloading" });
     } else if (this.activeCount() < this.maxParallel) {
-      await this.resumeInEngine(record);
+      try {
+        await this.resumeInEngine(record);
+      } catch (error) {
+        await this.store.updateRecord(id, {
+          status: "error",
+          errorMessage: error instanceof Error ? error.message : String(error),
+        });
+        const updated = this.store.getById(id);
+        if (updated) this.emit("error", this.toItem(updated));
+        this.promoteNext();
+      }
     } else {
       await this.store.updateRecord(id, { status: "queued" });
       this.queue.push(id);
@@ -197,7 +214,15 @@ export class DownloadManager extends EventEmitter {
     }
 
     if (record.status === "completed") {
-      await this.resumeInEngine(record);
+      try {
+        await this.resumeInEngine(record);
+      } catch (error) {
+        await this.store.updateRecord(id, {
+          status: "error",
+          errorMessage: error instanceof Error ? error.message : String(error),
+        });
+        throw error;
+      }
       await this.store.updateRecord(id, { status: "seeding" });
       return "seeding";
     }
@@ -275,8 +300,9 @@ export class DownloadManager extends EventEmitter {
   }
 
   private async resumeInEngine(record: DownloadRecord): Promise<void> {
+    const wasSeeding = record.status === "seeding";
     await this.store.updateRecord(record.id, { status: "downloading" });
-    
+
     // Parity with torlink: check if we have the cached .torrent file.
     // If we do, load from it to start metadata-less download instantly!
     const hasCachedTorrent = this.store.hasTorrentFile(record.id);
@@ -285,6 +311,11 @@ export class DownloadManager extends EventEmitter {
       : sanitizeMagnet(record.magnetUri);
 
     const handle = await this.engine.add(source, record.downloadPath, record.id);
+
+    if (wasSeeding) {
+      // A restored seed does not occupy a download slot.
+      await this.store.updateRecord(record.id, { status: "seeding" });
+    }
 
     // Update total bytes once metadata arrives (might differ from search result).
     if (handle.length > 0) {
@@ -330,10 +361,12 @@ export class DownloadManager extends EventEmitter {
       const record = this.store.getById(id);
       if (!record) return;
 
+      this.liveProgress.delete(id);
       const patch: Partial<DownloadRecord> = { errorMessage: err.message };
       // A fatal torrent error means the download is dead — stop showing it
-      // as an active download that never finishes.
-      if (record.status === "downloading" || record.status === "queued") {
+      // as an active download that never finishes. Completed/seeding records
+      // keep their status so the completion is not lost, but show the error.
+      if (record.status !== "completed" && record.status !== "seeding") {
         patch.status = "error";
       }
       void this.store.updateRecord(id, patch).then(() => {

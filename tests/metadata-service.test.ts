@@ -138,6 +138,50 @@ describe("MetadataService", () => {
     expect(fetchMock.mock.calls.length).toBe(callsAfterFirst);
   });
 
+  it("cancels in-flight lookups when the search is aborted", async () => {
+    const fetchMock = vi.fn(
+      (_input: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(new DOMException("Aborted", "AbortError")),
+          );
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const service = new MetadataService(createConfig({ tmdbApiKey: "tmdb" }));
+    const controller = new AbortController();
+    const enriching = service.enrich(
+      [result("Inception 2010 1080p")],
+      INTENT,
+      controller.signal,
+    );
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    const started = Date.now();
+    controller.abort();
+
+    await enriching;
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(service.enrichmentFailures).toBe(1);
+  });
+
+  it("skips lookups entirely for an already-aborted search", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const service = new MetadataService(createConfig({ tmdbApiKey: "tmdb" }));
+    const controller = new AbortController();
+    controller.abort();
+
+    const enriched = await service.enrich(
+      [result("Inception 2010 1080p")],
+      INTENT,
+      controller.signal,
+    );
+    expect(enriched[0]?.metadata).toBeUndefined();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("counts enrichment failures for UI surfacing", async () => {
     const fetchMock = vi.fn(async () => new Response("boom", { status: 500 }));
     vi.stubGlobal("fetch", fetchMock);

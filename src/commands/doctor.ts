@@ -63,8 +63,8 @@ export function executeDoctor(config: TorrentXConfig): void {
   // Effective network settings, so support can see what is in play.
   const network = [
     config.tor ? (config.proxyFallback === true ? "tor(direct-fallback)" : "tor(strict)") : null,
-    config.socks5Proxy ? `socks5=${config.socks5Proxy}` : null,
-    config.httpProxy ? `http=${config.httpProxy}` : null,
+    config.socks5Proxy ? `socks5=${redactCredentials(config.socks5Proxy)}` : null,
+    config.httpProxy ? `http=${redactCredentials(config.httpProxy)}` : null,
     config.dnsResolver === "doh" ? `dns=doh(${config.dohUrl ?? "cloudflare"})` : "dns=system",
     config.sourceProxyUrl ? "source-proxy" : null,
   ]
@@ -92,5 +92,16 @@ function dirCheck(name: string, dir: string): Check {
       ok: false,
       detail: `${dir} — ${error instanceof Error ? error.message : String(error)}`,
     };
+  }
+}
+
+/** `user:secret@host` → `user:***@host` (doctor output is meant to be shared). */
+export function redactCredentials(uri: string): string {
+  try {
+    const parsed = new URL(uri);
+    if (parsed.password) parsed.password = "***";
+    return parsed.toString();
+  } catch {
+    return uri;
   }
 }

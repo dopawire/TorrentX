@@ -116,6 +116,12 @@ export function DownloadsPanel({
 
   const selected = downloads[selectedIndex];
 
+  const run = (work: Promise<unknown>, message: string) => {
+    work
+      .then(() => setNotice(message))
+      .catch((error: Error) => setNotice(error.message));
+  };
+
   useInput(
     (input, key) => {
       if (!active) return;
@@ -125,19 +131,21 @@ export function DownloadsPanel({
         setSelectedIndex((i) => wrapIndex(i, 1, downloads.length));
       } else if (input === "p" && selected) {
         if (selected.status === "downloading") {
-          void manager.pauseDownload(selected.id);
-          setNotice("Paused.");
+          run(manager.pauseDownload(selected.id), "Paused.");
         } else if (selected.status === "paused") {
-          void manager.resumeDownload(selected.id);
-          setNotice("Resumed.");
+          run(manager.resumeDownload(selected.id), "Resumed.");
+        } else if (selected.status === "error") {
+          run(manager.resumeDownload(selected.id), "Retrying...");
         }
       } else if (input === "x" && selected) {
-        void manager.cancelDownload(selected.id);
-        setNotice("Cancelled.");
+        run(manager.cancelDownload(selected.id), "Cancelled.");
       } else if (input === "t" && selected) {
-        void manager.toggleSeed(selected.id).then((newStatus) => {
-          if (newStatus) setNotice(`Now: ${newStatus}`);
-        });
+        manager
+          .toggleSeed(selected.id)
+          .then((newStatus) => {
+            if (newStatus) setNotice(`Now: ${newStatus}`);
+          })
+          .catch((error: Error) => setNotice(error.message));
       }
     },
     { isActive: active },
@@ -166,7 +174,7 @@ export function DownloadsPanel({
         {notice ? (
           <Text color={TUI_COLOR.good}>{notice}</Text>
         ) : (
-          <Text dimColor>p pause/resume  x cancel  t toggle seed</Text>
+          <Text dimColor>p pause/resume/retry  x cancel  t toggle seed</Text>
         )}
       </Box>
       {downloads.length === 0 ? (

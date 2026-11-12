@@ -145,6 +145,120 @@ describe("SearchEngine", () => {
     expect(snapshots.at(-1)?.titles).toEqual(["slow result", "fast result"]);
   });
 
+  it("enforces the media type inferred from the query", async () => {
+    const mixed: SourceAdapter = {
+      id: "mixed",
+      name: "Mixed",
+      reliability: 0.8,
+      mediaTypes: ["anime", "movie", "adult"],
+      regions: ["global"],
+      async search() {
+        return [
+          createResult({ title: "Anime Show", source: "mixed", sourceReliability: 0.8, seeders: 9, mediaType: "anime" }),
+          createResult({ title: "Some Movie", source: "mixed", sourceReliability: 0.8, seeders: 8, mediaType: "movie" }),
+          createResult({ title: "Some Clip", source: "mixed", sourceReliability: 0.8, seeders: 7, mediaType: "adult" }),
+          createResult({ title: "Unknown Type", source: "mixed", sourceReliability: 0.8, seeders: 6 }),
+        ];
+      },
+    };
+    const directory = await mkdtemp(path.join(os.tmpdir(), "torrentx-type-test-"));
+    const config = createConfig({ tmdbApiKey: undefined, omdbApiKey: undefined });
+    const engine = new SearchEngine(
+      [mixed],
+      config,
+      new CacheService(config.cacheTtlMs, directory),
+    );
+
+    const report = await engine.search("anime clip", {
+      enrich: false,
+      cache: false,
+      expandQuery: false,
+    });
+
+    expect(report.results.map((item) => item.title)).toEqual(["Anime Show", "Unknown Type"]);
+  });
+
+  it("enforces a language inferred from the query", async () => {
+    const mixed: SourceAdapter = {
+      id: "mixed",
+      name: "Mixed",
+      reliability: 0.8,
+      mediaTypes: ["movie"],
+      regions: ["india"],
+      async search() {
+        return [
+          createResult({ title: "Hindi Movie", source: "mixed", sourceReliability: 0.8, seeders: 9, language: "hindi" }),
+          createResult({ title: "Tamil Movie", source: "mixed", sourceReliability: 0.8, seeders: 8, language: "tamil" }),
+          createResult({ title: "Unknown Language", source: "mixed", sourceReliability: 0.8, seeders: 7 }),
+        ];
+      },
+    };
+    const directory = await mkdtemp(path.join(os.tmpdir(), "torrentx-lang-test-"));
+    const config = createConfig({ tmdbApiKey: undefined, omdbApiKey: undefined });
+    const engine = new SearchEngine(
+      [mixed],
+      config,
+      new CacheService(config.cacheTtlMs, directory),
+    );
+
+    const report = await engine.search("hindi movie", {
+      enrich: false,
+      cache: false,
+      expandQuery: false,
+    });
+
+    expect(report.results.map((item) => item.title)).toEqual([
+      "Hindi Movie",
+      "Unknown Language",
+    ]);
+  });
+
+  it("applies cross-source consensus before the result limit", async () => {
+    const hash = "e".repeat(40);
+    const adapter = (id: string, titles: Array<[string, number, string | undefined]>): SourceAdapter => ({
+      id,
+      name: id,
+      reliability: 0.8,
+      mediaTypes: ["movie"],
+      regions: ["global"],
+      async search() {
+        return titles.map(([title, seeders, magnetHash]) =>
+          createResult({
+            title,
+            source: id,
+            sourceReliability: 0.8,
+            seeders,
+            ...(magnetHash ? { magnetUri: `magnet:?xt=urn:btih:${magnetHash}` } : {}),
+          }),
+        );
+      },
+    });
+    const directory = await mkdtemp(path.join(os.tmpdir(), "torrentx-consensus-test-"));
+    const config = createConfig({ tmdbApiKey: undefined, omdbApiKey: undefined });
+    const engine = new SearchEngine(
+      [
+        adapter("one", [
+          ["Popular Exclusive", 1000, undefined],
+          ["Confirmed Torrent", 900, hash],
+        ]),
+        adapter("two", [["Confirmed Torrent", 900, hash]]),
+      ],
+      config,
+      new CacheService(config.cacheTtlMs, directory),
+    );
+
+    const report = await engine.search("example", {
+      limit: 1,
+      enrich: false,
+      cache: false,
+      expandQuery: false,
+    });
+
+    // Without the boost the 1000-seeder exclusive wins the single slot.
+    expect(report.results).toHaveLength(1);
+    expect(report.results[0]?.title).toBe("Confirmed Torrent");
+  });
+
   it("does not record a health failure when the search is cancelled by the user", async () => {
     const flaky: SourceAdapter = {
       id: "flaky",

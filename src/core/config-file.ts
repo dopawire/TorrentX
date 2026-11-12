@@ -38,6 +38,7 @@ const NUMERIC_KEYS = [
   "sourceTimeoutMs",
   "maxConcurrency",
   "metadataLimit",
+  "timeoutFloorMs",
 ] as const;
 
 const STRING_KEYS = [

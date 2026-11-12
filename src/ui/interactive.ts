@@ -9,12 +9,13 @@ export async function runInteractive(
   engine: SearchEngine,
   options: SearchOptions & { mobile?: boolean } = {},
   initialTorrentOrMagnet?: string,
+  downloadDir?: string,
 ): Promise<void> {
   if (!process.stdin.isTTY || !process.stdout.isTTY) {
     throw new Error("Interactive mode needs a TTY. Use `torrentx search <query>` instead.");
   }
 
-  const downloadManager = new DownloadManager();
+  const downloadManager = new DownloadManager(downloadDir);
   // Resume any interrupted downloads from last session.
   await downloadManager.restore().catch(() => undefined);
 

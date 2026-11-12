@@ -138,6 +138,24 @@ describe("DownloadEngine", () => {
     expect(Date.now() - started).toBeLessThan(6_000);
   }, 10_000);
 
+  it("unregisters a torrent after a fatal error so it can be retried", async () => {
+    const engine = await makeEngine({ stallTimeoutMs: 60_000, metadataTimeoutMs: 60_000 });
+    const errors: string[] = [];
+    engine.on("error", (_id: string, err: Error) => errors.push(err.message));
+
+    await engine.add("magnet:?xt=urn:btih:deadbeef01234567890deadbeef01234567890ab", workDir!, "dl-6");
+    const internals = engine as unknown as {
+      idToTorrent: Map<string, EventEmitter>;
+      intervals: Map<string, unknown>;
+    };
+    internals.idToTorrent.get("dl-6")!.emit("error", new Error("boom"));
+
+    expect(errors).toEqual(["boom"]);
+    expect(engine.has("dl-6")).toBe(false);
+    expect(internals.intervals.has("dl-6")).toBe(false);
+    await engine.destroy();
+  });
+
   it("stops polling and reports progress events", async () => {
     const engine = await makeEngine();
     const progress: Array<{ id: string }> = [];

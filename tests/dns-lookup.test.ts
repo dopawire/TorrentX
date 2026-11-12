@@ -117,6 +117,29 @@ describe("createDohLookup", () => {
     expect(systemLookupMock).not.toHaveBeenCalled();
   });
 
+  it("caps long provider TTLs instead of caching for a day", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      fetchMock.mockImplementation(async (url: string) =>
+        url.includes("type=1")
+          ? dohResponse([{ type: 1, data: "4.3.2.1", ttl: 86_400 }])
+          : dohResponse([]),
+      );
+
+      const lookup = createDohLookup();
+      await lookupAsync(lookup, "long-ttl.example");
+      await lookupAsync(lookup, "long-ttl.example");
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+
+      // Past the five-minute cap the name is resolved again.
+      vi.setSystemTime(Date.now() + 6 * 60_000);
+      await lookupAsync(lookup, "long-ttl.example");
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("passes IP literals through to system lookup", async () => {
     systemLookupMock.mockImplementation(
       (_host: string, _opts: unknown, cb: (err: null, addrs: unknown) => void) =>

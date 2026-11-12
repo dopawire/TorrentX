@@ -223,6 +223,117 @@ describe("DownloadManager", () => {
     expect(item.title).toContain("Name");
   });
 
+  it("marks a fatal engine error and retries it on resume", async () => {
+    const result = fakeResult();
+    const item = await manager.startDownload(result);
+    await waitForStatus(manager, item.id, "downloading");
+
+    const internals = manager as unknown as { engine: EventEmitter };
+    internals.engine.emit("error", item.id, new Error("boom"));
+
+    expect(await waitForStatus(manager, item.id, "error")).toBe(true);
+    expect(manager.getDownload(item.id)?.errorMessage).toBe("boom");
+
+    await manager.resumeDownload(item.id);
+    expect(await waitForStatus(manager, item.id, "downloading")).toBe(true);
+    expect(manager.getDownload(item.id)?.errorMessage).toBe("boom");
+  });
+
+  it("does not restart a completed record as an active download", async () => {
+    const item = await manager.startDownload(fakeResult());
+    await waitForStatus(manager, item.id, "downloading");
+
+    const internals = manager as unknown as { engine: EventEmitter };
+    internals.engine.emit("done", item.id);
+    expect(await waitForStatus(manager, item.id, "seeding")).toBe(true);
+
+    // A late torrent error must not turn a finished download into an error.
+    internals.engine.emit("error", item.id, new Error("late tracker failure"));
+    await new Promise((r) => setTimeout(r, 100));
+    expect(manager.getDownload(item.id)?.status).toBe("seeding");
+    expect(manager.getDownload(item.id)?.errorMessage).toBe("late tracker failure");
+  });
+
+  it("surfaces an error when retrying a failed download adds it again", async () => {
+    const item = await manager.startDownload(fakeResult());
+    await waitForStatus(manager, item.id, "downloading");
+    const internals = manager as unknown as { engine: EventEmitter & { add: unknown } };
+    internals.engine.emit("error", item.id, new Error("boom"));
+    expect(await waitForStatus(manager, item.id, "error")).toBe(true);
+
+    internals.engine.add = async () => {
+      throw new Error("disk gone");
+    };
+    await manager.resumeDownload(item.id);
+
+    expect(manager.getDownload(item.id)?.status).toBe("error");
+    expect(manager.getDownload(item.id)?.errorMessage).toBe("disk gone");
+  });
+
+  it("restores interrupted downloads within the parallel cap", async () => {
+    process.env.TORRENTX_MAX_PARALLEL_DOWNLOADS = "1";
+    const { DownloadStore } = await import("../src/services/download-store.js");
+    const store = new DownloadStore();
+    await store.load();
+    const record = (id: string, hashChar: string) => ({
+      id,
+      magnetUri: `magnet:?xt=urn:btih:${hashChar.repeat(40)}`,
+      title: id,
+      source: "yts",
+      downloadPath: join(TEST_DIR, "dl"),
+      status: "downloading" as const,
+      addedAt: new Date().toISOString(),
+      totalBytes: 1000,
+      downloadedBytes: 0,
+    });
+    await store.addRecord(record("dl-first", "a"));
+    await store.addRecord(record("dl-second", "b"));
+
+    const restored = new DownloadManager(join(TEST_DIR, "dl"));
+    await restored.restore();
+    expect(await waitForStatus(restored, "dl-first", "downloading")).toBe(true);
+    expect(restored.getDownload("dl-second")?.status).toBe("queued");
+
+    await restored.destroy().catch(() => undefined);
+    delete process.env.TORRENTX_MAX_PARALLEL_DOWNLOADS;
+  });
+
+  it("brings seeding records back without consuming a download slot", async () => {
+    process.env.TORRENTX_MAX_PARALLEL_DOWNLOADS = "1";
+    const { DownloadStore } = await import("../src/services/download-store.js");
+    const store = new DownloadStore();
+    await store.load();
+    const base = {
+      title: "x",
+      source: "yts",
+      downloadPath: join(TEST_DIR, "dl"),
+      addedAt: new Date().toISOString(),
+      totalBytes: 1000,
+      downloadedBytes: 1000,
+    };
+    await store.addRecord({
+      ...base,
+      id: "dl-seed",
+      magnetUri: `magnet:?xt=urn:btih:${"c".repeat(40)}`,
+      status: "seeding",
+    });
+    await store.addRecord({
+      ...base,
+      id: "dl-download",
+      magnetUri: `magnet:?xt=urn:btih:${"d".repeat(40)}`,
+      status: "downloading",
+      downloadedBytes: 0,
+    });
+
+    const restored = new DownloadManager(join(TEST_DIR, "dl"));
+    await restored.restore();
+    expect(restored.getDownload("dl-seed")?.status).toBe("seeding");
+    expect(await waitForStatus(restored, "dl-download", "downloading")).toBe(true);
+
+    await restored.destroy().catch(() => undefined);
+    delete process.env.TORRENTX_MAX_PARALLEL_DOWNLOADS;
+  });
+
   it("pause frees a slot for a queued download", async () => {
     process.env.TORRENTX_MAX_PARALLEL_DOWNLOADS = "1";
     const capped = new DownloadManager(join(TEST_DIR, "dl"));

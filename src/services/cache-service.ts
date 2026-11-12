@@ -23,6 +23,8 @@ export class CacheService {
   private readonly memory = new Map<string, CacheEntry<unknown>>();
   private readonly maxMemoryEntries: number;
   private pruned = false;
+  /** Serialise renames: Windows EPERMs when two target the same file. */
+  private writeQueue: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly ttlMs: number,
@@ -75,18 +77,19 @@ export class CacheService {
     // Write to memory immediately
     this.memorySet(hash, entry);
 
-    // Persist to disk asynchronously
-    await mkdir(this.directory, { recursive: true });
-    if (!this.pruned) {
-      this.pruned = true;
-      void this.prune().catch(() => undefined);
-    }
-    const file = this.fileFor(hash);
-    // Unique per call: concurrent writes for the same key must not race on
-    // the same temporary name (rename is atomic; last writer wins).
-    const temporary = `${file}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
-    await writeFile(temporary, JSON.stringify(entry), "utf8");
-    await rename(temporary, file);
+    const work = this.writeQueue.then(async () => {
+      await mkdir(this.directory, { recursive: true });
+      if (!this.pruned) {
+        this.pruned = true;
+        void this.prune().catch(() => undefined);
+      }
+      const file = this.fileFor(hash);
+      const temporary = `${file}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
+      await writeFile(temporary, JSON.stringify(entry), "utf8");
+      await rename(temporary, file);
+    });
+    this.writeQueue = work.catch(() => undefined);
+    await work;
   }
 
   /**

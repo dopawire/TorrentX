@@ -170,18 +170,15 @@ export class DownloadEngine extends EventEmitter {
     } else {
       const timeoutMs = this.metadataTimeoutMs;
       const metadataTimer = setTimeout(() => {
-        if (!torrent.ready && !torrent.destroyed) {
-          this.emit(
-            "error",
-            id,
-            new Error(`Metadata fetch timed out after ${timeoutMs}ms`),
-          );
-          this.clearProgressInterval(id);
-          this.metadataTimers.delete(id);
-          this.stallTrackers.delete(id);
-          this.idToTorrent.delete(id);
-          void torrent.destroy();
+        if (this.idToTorrent.get(id) !== torrent || torrent.ready || torrent.destroyed) {
+          return;
         }
+        this.emit(
+          "error",
+          id,
+          new Error(`Metadata fetch timed out after ${timeoutMs}ms`),
+        );
+        this.detach(id, torrent);
       }, timeoutMs);
       this.metadataTimers.set(id, metadataTimer);
       torrent.once("metadata", () => {
@@ -191,9 +188,13 @@ export class DownloadEngine extends EventEmitter {
       });
     }
 
-    // Wire up error handler (non-fatal — just surfaces to UI).
+    // A torrent-level error is fatal for that transfer: surface it, stop the
+    // telemetry loop and unregister the handle so the record can be retried
+    // (a later resume re-adds the magnet instead of resuming a dead torrent).
     torrent.on("error", (err: Error) => {
+      if (this.idToTorrent.get(id) !== torrent) return;
       this.emit("error", id, err);
+      this.detach(id, torrent);
     });
 
     torrent.on("done", () => {
@@ -240,11 +241,7 @@ export class DownloadEngine extends EventEmitter {
   cancel(id: string, destroyFiles = false): boolean {
     const torrent = this.idToTorrent.get(id);
     if (!torrent) return false;
-    this.clearProgressInterval(id);
-    this.clearMetadataTimer(id);
-    this.stallTrackers.delete(id);
-    this.idToTorrent.delete(id);
-    torrent.destroy({ destroyStore: destroyFiles });
+    this.detach(id, torrent, destroyFiles);
     return true;
   }
 
@@ -314,11 +311,18 @@ export class DownloadEngine extends EventEmitter {
           `Stalled: no progress for ${Math.round(timeoutMs / 60_000)} minutes`,
         ),
       );
-      this.clearProgressInterval(id);
-      this.clearMetadataTimer(id);
-      this.stallTrackers.delete(id);
-      this.idToTorrent.delete(id);
-      void torrent.destroy();
+      this.detach(id, torrent);
+    }
+  }
+
+  /** Stop telemetry, unregister the handle and destroy the torrent. */
+  private detach(id: string, torrent: Torrent, destroyFiles = false): void {
+    this.clearProgressInterval(id);
+    this.clearMetadataTimer(id);
+    this.stallTrackers.delete(id);
+    if (this.idToTorrent.get(id) === torrent) this.idToTorrent.delete(id);
+    if (!torrent.destroyed) {
+      void torrent.destroy({ destroyStore: destroyFiles });
     }
   }
 

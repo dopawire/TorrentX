@@ -32,8 +32,19 @@ const NYAA_CATEGORIES: Partial<Record<string, string>> = {
   book: "3_0",
 };
 
-/** Categories applied to keyword searches too (Nyaa is anime-first otherwise). */
-const NYAA_SEARCH_CATEGORIES = new Set(["music", "book"]);
+/**
+ * Categories applied to keyword searches too, so e.g. the Movies tab does
+ * not fill up with anime. Anime searches stay unscoped (Nyaa is anime-first
+ * and releases span several subcategories).
+ */
+const NYAA_SEARCH_CATEGORIES = new Set([
+  "movie",
+  "tv",
+  "game",
+  "software",
+  "music",
+  "book",
+]);
 
 /**
  * Pure mapper: parse a Nyaa RSS feed into search results. Exported for

@@ -6,7 +6,7 @@ import { stableHash } from "../utils/hash.js";
 /** Disk entries untouched this long are removed (longer than any TTL in use). */
 const DISK_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 /** Cache entry files are named by stableHash(): 16 hex characters. */
-const ENTRY_FILE = /^[0-9a-f]{16}\.json(?:\.\d+\.tmp)?$/;
+const ENTRY_FILE = /^[0-9a-f]{16}\.json(?:\.[\w.-]+\.tmp)?$/;
 
 interface CacheEntry<T> {
   createdAt: number;
@@ -82,7 +82,9 @@ export class CacheService {
       void this.prune().catch(() => undefined);
     }
     const file = this.fileFor(hash);
-    const temporary = `${file}.${process.pid}.tmp`;
+    // Unique per call: concurrent writes for the same key must not race on
+    // the same temporary name (rename is atomic; last writer wins).
+    const temporary = `${file}.${process.pid}.${Math.random().toString(36).slice(2, 8)}.tmp`;
     await writeFile(temporary, JSON.stringify(entry), "utf8");
     await rename(temporary, file);
   }

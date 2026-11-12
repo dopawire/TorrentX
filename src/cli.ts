@@ -38,6 +38,7 @@ const healthLoaded = healthTracker.load();
 interface Runtime {
   engine: SearchEngineType;
   sources: ReturnType<typeof createDefaultSources>;
+  http: HttpClient;
 }
 
 let runtime: Runtime | undefined;
@@ -84,6 +85,7 @@ async function ensureRuntime(wantTor?: boolean): Promise<Runtime> {
   runtime = {
     engine: new SearchEngine(sources, config, undefined, healthTracker),
     sources,
+    http,
   };
   return runtime;
 }
@@ -106,6 +108,7 @@ function announceTorExit(http: HttpClient): void {
 async function shutdown(): Promise<void> {
   await tor?.stop().catch(() => undefined);
   tor = undefined;
+  await runtime?.http.destroy().catch(() => undefined);
   // Flush learned source-health metrics once the command (or interactive
   // session) has fully settled. Awaited so the write completes before Node
   // drains its event loop and exits.
@@ -132,6 +135,7 @@ program
         ...(options.mobile === undefined ? {} : { mobile: options.mobile }),
       },
       torrentOrMagnet,
+      config.downloadDir,
     );
   });
 
@@ -229,7 +233,11 @@ program.configureOutput({
   outputError: (message, write) => write(`torrentx: ${message}`),
 });
 
-program.parseAsync().catch((error: unknown) => {
+try {
+  await program.parseAsync();
+} catch (error: unknown) {
   console.error(`torrentx: ${error instanceof Error ? error.message : String(error)}`);
   process.exitCode = 1;
-}).finally(() => shutdown());
+} finally {
+  await shutdown();
+}

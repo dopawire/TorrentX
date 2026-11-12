@@ -40,7 +40,7 @@ Active downloads run in the background while you keep searching. Press `D` (Shif
 
 Press `w` to toggle the downloads panel:
 *   **Live Metrics:** Shows progress bars, download/upload speeds, and ETAs.
-*   **Lifecycle Control:** Press `p` to pause/resume, `x` to cancel, and `t` to toggle seeding.
+*   **Lifecycle Control:** Press `p` to pause/resume (or retry a failed download), `x` to cancel, and `t` to toggle seeding.
 *   **Persistence:** Download state is persisted to disk. If you quit mid-transfer, TorrentX picks up exactly where it left off next time you launch.
 *   **Auto-Seeding:** Completed downloads seed automatically so the next person can find them.
 
@@ -55,7 +55,7 @@ $env:TORRENTX_MAX_CONNS = "400" # 55-1200, default 350
 npx torrentx
 ```
 
-`TORRENTX_MAX_WEB_CONNS` (1-96), `TORRENTX_STORE_CACHE_SLOTS` (8-512), and `TORRENTX_DOWNLOAD_STRATEGY` (`rarest`, the default, or `sequential`) are also supported. Set `TORRENTX_TRACKERS` to a comma- or newline-separated tracker list to replace the built-in list. `TORRENTX_MAX_PARALLEL_DOWNLOADS` (1-16, default 3) caps how many downloads run at once — the rest wait in the queue and start automatically. `TORRENTX_STALL_TIMEOUT_MS` (default 15 minutes) controls how long a download may make no progress before it is marked as an error.
+`TORRENTX_MAX_WEB_CONNS` (1-96), `TORRENTX_STORE_CACHE_SLOTS` (8-512), and `TORRENTX_DOWNLOAD_STRATEGY` (`rarest`, the default, or `sequential`) are also supported. `TORRENTX_TIMEOUT_FLOOR_MS` raises the minimum per-source timeout (Tor already raises it automatically). Set `TORRENTX_TRACKERS` to a comma- or newline-separated tracker list to replace the built-in list. `TORRENTX_MAX_PARALLEL_DOWNLOADS` (1-16, default 3) caps how many downloads run at once — the rest wait in the queue and start automatically. `TORRENTX_STALL_TIMEOUT_MS` (default 15 minutes) controls how long a download may make no progress before it is marked as an error.
 
 ### Metadata enrichment (optional)
 
@@ -135,6 +135,7 @@ torrentx top today --type movie
 torrentx top week --type anime --json
 
 # Actions on recent results
+torrentx magnet 2
 torrentx open 2
 torrentx export 2 magnet.txt
 
@@ -150,8 +151,6 @@ torrentx doctor
 ```
 
 
-
----
 
 ---
 
@@ -268,6 +267,11 @@ To run or work on TorrentX locally:
    npm run build
    npx .
    ```
+5. Run the same checks CI runs before opening a pull request:
+   ```bash
+   npm run check
+   npm run test:coverage
+   ```
 
 ---
 
@@ -287,7 +291,7 @@ TorrentX also skips its startup DNS warm-up whenever Tor, a proxy, or DoH is con
 
 Also note that providers can always tell *that* Tor is in use, even if not what for; configure Tor bridges if that matters in your threat model.
 
-Once a download finishes it keeps seeding by default, sharing it back so the next person can find it just as easily. The network only works because people pass things along, and even a few minutes makes a real difference. If you'd rather not, opt out anytime: open the Seeding tab, press p to pause or stop any item, and press it again to pick it back up. Always your call.
+Once a download finishes it keeps seeding by default, sharing it back so the next person can find it just as easily. The network only works because people pass things along, and even a few minutes makes a real difference. If you'd rather not, opt out anytime: open the downloads panel (`w`), press `t` on a completed item to stop seeding, and press it again to pick it back up. Always your call.
 
 ---
 

@@ -27,6 +27,23 @@ describe("executeDoctor", () => {
     }
   });
 
+  it("redacts proxy passwords in the network line", () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    try {
+      const config = createConfig({
+        socks5Proxy: "socks5h://user:supersecret@127.0.0.1:9050",
+      });
+      executeDoctor(config);
+
+      const output = log.mock.calls.flat().join("\n");
+      expect(output).toContain("socks5=socks5h://user:***@127.0.0.1:9050");
+      expect(output).not.toContain("supersecret");
+    } finally {
+      log.mockRestore();
+      process.exitCode = 0;
+    }
+  });
+
   it("marks missing tor as a failure", () => {
     const log = vi.spyOn(console, "log").mockImplementation(() => {});
     try {

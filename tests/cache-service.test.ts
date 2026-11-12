@@ -48,6 +48,17 @@ describe("CacheService (two-tier)", () => {
     const cache = new CacheService(60_000, await tempDir());
     expect(await cache.get("never-set")).toBeUndefined();
   });
+
+  it("survives concurrent writes for the same key", async () => {
+    const dir = await tempDir();
+    const cache = new CacheService(60_000, dir);
+    await Promise.all(
+      Array.from({ length: 20 }, (_, index) => cache.set("same-key", index)),
+    );
+
+    expect(typeof (await cache.get<number>("same-key"))).toBe("number");
+    expect((await readdir(dir)).filter((name) => name.endsWith(".tmp"))).toEqual([]);
+  });
 });
 
 describe("CacheService pruning", () => {

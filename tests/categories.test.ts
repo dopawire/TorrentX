@@ -149,13 +149,15 @@ describe("LimeTorrents categories", () => {
 });
 
 describe("Nyaa categories", () => {
-  it("scopes music and book searches but leaves anime searches open", async () => {
+  it("scopes non-anime searches but leaves anime searches open", async () => {
     const { http, urls } = recordingHttp({ text: "<rss><channel></channel></rss>" });
     const nyaa = new NyaaAdapter(http);
     await nyaa.search(request("music"));
     await nyaa.search(request("anime"));
+    await nyaa.search(request("movie"));
     expect(urls[0]).toContain("c=2_0");
     expect(urls[1]).not.toContain("c=");
+    expect(urls[2]).toContain("c=4_3");
   });
 });
 

@@ -1,5 +1,6 @@
 import type { TorrentXConfig } from "../types/config.js";
 import type {
+  SearchFilters,
   SearchIntent,
   SearchOptions,
   SearchProgressListener,
@@ -61,6 +62,13 @@ export class SearchEngine {
       ...(options.language ? { language: options.language } : {}),
     });
     const limit = Math.max(1, Math.min(options.limit ?? 100, 100));
+    // Enforce the inferred type too (e.g. a plain "anime ..." query), not
+    // just the explicit option the source selection already honours.
+    const filters: SearchFilters = {
+      ...options,
+      ...(intent.mediaType ? { mediaType: intent.mediaType } : {}),
+      ...(intent.language ? { language: intent.language } : {}),
+    };
     const cacheKey = JSON.stringify({ query: intent.query, intent, options: cacheableOptions(options), limit });
 
     if (options.cache !== false) {
@@ -126,7 +134,7 @@ export class SearchEngine {
         }, options.sourceTimeoutMs, options.signal).then((run) => {
           completedRuns.push(run);
           const partialResults = rankResults(
-            applyFilters(dedupeResults(completedRuns.flatMap((item) => item.results)), options),
+            applyFilters(dedupeResults(completedRuns.flatMap((item) => item.results)), filters),
             intent,
           ).slice(0, limit);
           onProgress?.({
@@ -147,7 +155,13 @@ export class SearchEngine {
 
     const rawResults = runs.flatMap((run) => run.results);
     let allResults = rawResults;
-    let results = rankResults(applyFilters(dedupeResults(rawResults), options), intent).slice(0, limit);
+    // Cross-source consensus is part of the score, so apply it before the
+    // limit slice — otherwise a confirmed torrent just outside the slice can
+    // never enter the visible results.
+    let results = this.applyConsensusBoost(
+      rankResults(applyFilters(dedupeResults(rawResults), filters), intent),
+      allResults,
+    ).slice(0, limit);
 
     // Smart query expansion: if results are sparse, retry with simplified queries
     if (results.length < 3 && options.expandQuery !== false && !options.top) {
@@ -156,9 +170,9 @@ export class SearchEngine {
       );
       if (expandedRaw.length > 0) {
         allResults = [...rawResults, ...expandedRaw];
-        const expandedRanked = rankResults(
-          applyFilters(dedupeResults(allResults), options),
-          intent,
+        const expandedRanked = this.applyConsensusBoost(
+          rankResults(applyFilters(dedupeResults(allResults), filters), intent),
+          allResults,
         ).slice(0, limit);
         if (expandedRanked.length > results.length) {
           results = expandedRanked;
@@ -166,11 +180,8 @@ export class SearchEngine {
       }
     }
 
-    // Cross-source consensus boost: torrents found on multiple sources are more likely alive
-    results = this.applyConsensusBoost(results, allResults);
-
     if (options.enrich !== false) {
-      results = await this.metadata.enrich(results, intent);
+      results = await this.metadata.enrich(results, intent, options.signal);
     }
 
     const sources = runs.map(({ report }) => report);

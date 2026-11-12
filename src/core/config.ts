@@ -12,12 +12,14 @@ export function createConfig(overrides: Partial<TorrentXConfig> = {}): TorrentXC
 
   // Environment-backed values win over the config file but lose to overrides.
   const fromEnv: Partial<TorrentXConfig> = {
-    tmdbApiKey: process.env.TMDB_API_KEY ?? file.tmdbApiKey,
-    omdbApiKey: process.env.OMDB_API_KEY ?? file.omdbApiKey,
+    tmdbApiKey: process.env.TMDB_API_KEY || file.tmdbApiKey,
+    omdbApiKey: process.env.OMDB_API_KEY || file.omdbApiKey,
     userAgent:
-      process.env.TORRENTX_USER_AGENT ??
-      file.userAgent ??
+      process.env.TORRENTX_USER_AGENT ||
+      file.userAgent ||
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36",
+    timeoutFloorMs:
+      parsePositiveIntegerEnv("TORRENTX_TIMEOUT_FLOOR_MS") ?? file.timeoutFloorMs,
     sourceProxyUrl: process.env.TORRENTX_SOURCE_PROXY || file.sourceProxyUrl || undefined,
     downloadDir: process.env.TORRENTX_DOWNLOAD_DIR || file.downloadDir || undefined,
     torBinary: process.env.TORRENTX_TOR_BINARY || file.torBinary || undefined,
@@ -58,6 +60,13 @@ function resolveDns(
     return { dnsResolver: "doh", dohUrl: raw.slice("doh:".length) };
   }
   return fileMode ? { dnsResolver: fileMode, ...(fileDohUrl ? { dohUrl: fileDohUrl } : {}) } : {};
+}
+
+function parsePositiveIntegerEnv(name: string): number | undefined {
+  const raw = process.env[name]?.trim();
+  if (!raw) return undefined;
+  const parsed = Number(raw);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
 }
 
 /**

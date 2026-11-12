@@ -96,16 +96,32 @@ export class MetadataService {
     return Boolean(this.config.tmdbApiKey || this.config.omdbApiKey);
   }
 
-  async enrich(results: SearchResult[], intent: SearchIntent): Promise<SearchResult[]> {
-    if (!this.enabled || !["movie", "tv", "anime", "documentary", undefined].includes(intent.mediaType)) {
+  async enrich(
+    results: SearchResult[],
+    intent: SearchIntent,
+    signal?: AbortSignal,
+  ): Promise<SearchResult[]> {
+    if (
+      !this.enabled ||
+      signal?.aborted ||
+      !["movie", "tv", "anime", "documentary", undefined].includes(intent.mediaType)
+    ) {
       return results;
     }
 
+    // Metadata calls must not outlive the search that asked for them: bound
+    // each lookup and cancel it when the user starts another search.
+    const timeoutMs = Math.max(
+      this.config.sourceTimeoutMs,
+      this.config.timeoutFloorMs ?? 0,
+    );
     this.enrichmentFailures = 0;
     const enriched = await Promise.all(
       results.slice(0, this.config.metadataLimit).map(async (result): Promise<SearchResult> => {
         try {
-          const metadata = await this.lookup(result, intent);
+          const timeout = AbortSignal.timeout(timeoutMs);
+          const combined = signal ? AbortSignal.any([signal, timeout]) : timeout;
+          const metadata = await this.lookup(result, intent, combined);
           return metadata ? { ...result, metadata } : result;
         } catch {
           this.enrichmentFailures += 1;
@@ -120,6 +136,7 @@ export class MetadataService {
   private async lookup(
     result: SearchResult,
     intent: SearchIntent,
+    signal?: AbortSignal,
   ): Promise<MediaMetadata | undefined> {
     const title = normalizeTitle(result.title).replace(/\b(19|20)\d{2}\b.*$/, "").trim();
     const year = result.title.match(/\b((?:19|20)\d{2})\b/)?.[1];
@@ -135,7 +152,7 @@ export class MetadataService {
     let providerError: unknown;
     if (this.config.tmdbApiKey) {
       try {
-        metadata = await this.lookupTmdb(title, intent, year);
+        metadata = await this.lookupTmdb(title, intent, year, signal);
       } catch (error) {
         providerError = error;
       }
@@ -144,7 +161,7 @@ export class MetadataService {
     // previously OMDB was unreachable whenever a TMDB key was configured.
     if (!metadata && this.config.omdbApiKey) {
       try {
-        metadata = await this.lookupOmdb(title, year);
+        metadata = await this.lookupOmdb(title, year, signal);
       } catch (error) {
         providerError = error;
       }
@@ -160,13 +177,14 @@ export class MetadataService {
     title: string,
     intent: SearchIntent,
     year?: string,
+    signal?: AbortSignal,
   ): Promise<MediaMetadata | undefined> {
     const type = intent.mediaType === "tv" || intent.mediaType === "anime" ? "tv" : "movie";
     const url = new URL(`https://api.themoviedb.org/3/search/${type}`);
     url.searchParams.set("api_key", this.config.tmdbApiKey!);
     url.searchParams.set("query", title);
     if (year) url.searchParams.set(type === "movie" ? "year" : "first_air_date_year", year);
-    const payload = await this.http.json<TmdbSearchResponse>(url.toString());
+    const payload = await this.http.json<TmdbSearchResponse>(url.toString(), signal);
 
     // Pick the first plausible match instead of blindly taking results[0].
     const candidates = (payload.results ?? []).slice(0, MAX_CANDIDATES);
@@ -189,12 +207,16 @@ export class MetadataService {
     });
   }
 
-  private async lookupOmdb(title: string, year?: string): Promise<MediaMetadata | undefined> {
+  private async lookupOmdb(
+    title: string,
+    year?: string,
+    signal?: AbortSignal,
+  ): Promise<MediaMetadata | undefined> {
     const url = new URL("https://www.omdbapi.com/");
     url.searchParams.set("apikey", this.config.omdbApiKey!);
     url.searchParams.set("t", title);
     if (year) url.searchParams.set("y", year);
-    const item = await this.http.json<OmdbResponse>(url.toString());
+    const item = await this.http.json<OmdbResponse>(url.toString(), signal);
     if (item.Response !== "True" || !item.Title) return undefined;
     if (!titlesMatch(title, item.Title)) return undefined;
 
